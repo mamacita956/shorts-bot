@@ -1,0 +1,90 @@
+name: Windows kurulum dosyası
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The subtitles are burned in with libass; a build without it would make every render fail.
+      - name: ffmpeg'i kontrol et
+        shell: bash
+        run: |
+          test -f node_modules/ffmpeg-static/ffmpeg.exe
+          node_modules/ffmpeg-static/ffmpeg.exe -hide_banner -version | head -1
+          node_modules/ffmpeg-static/ffmpeg.exe -hide_banner -filters | grep -E ' ass '
+
+      - run: npm run typecheck
+      - run: npm test
+
+      # electron-builder downloads Electron, NSIS and rcedit from GitHub; keep them between runs.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Kurulum dosyasını oluştur
+        shell: bash
+        # Those downloads sometimes fail with a 5xx from GitHub; retry before giving up.
+        run: |
+          # Use the Electron that npm ci already installed, falling back to the npmmirror copy;
+          # Electron's own installer checks the zip against the checksums shipped in the npm package.
+          node node_modules/electron/install.js || \
+            for i in 1 2 3; do
+              ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ ELECTRON_CUSTOM_DIR='{{ version }}' \
+                node node_modules/electron/install.js && break
+              sleep $((i * 15))
+            done
+          test -f node_modules/electron/dist/electron.exe
+          npm run build:app
+          for i in 1 2 3 4; do
+            npx electron-builder --win --x64 --publish never -c.electronDist=node_modules/electron/dist && exit 0
+            echo "Deneme $i başarısız, tekrar deneniyor..."; sleep $((i * 20))
+          done
+          exit 1
+
+      - name: Paketin içini kontrol et
+        shell: bash
+        run: |
+          test -f release/win-unpacked/resources/ffmpeg/ffmpeg.exe
+          test -f release/win-unpacked/resources/assets/fonts/Montserrat-ExtraBold.ttf
+          ls -la release/*.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShortsBot-Kurulum
+          path: release/*.exe
+          if-no-files-found: error
+
+      - name: Release'e yükle
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="v$(node -p "require('./package.json').version")"
+          gh release view "$v" >/dev/null 2>&1 || gh release create "$v" --title "Shorts Bot ${v#v}" \
+            --notes "ShortsBot-Kurulum dosyasını indir ve çift tıkla. Windows uyarı verirse: Ek bilgi → Yine de çalıştır."
+          gh release upload "$v" release/*.exe --clobber

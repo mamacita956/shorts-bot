@@ -1,0 +1,931 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shorts Bot</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f4f3f0;
+  --surface: #fcfcfb;
+  --surface-2: #f0efec;
+  --border: #e2e1dc;
+  --grid: #e8e7e3;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #77766f;
+  --accent: #2a78d6;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --critical-text: #b42828;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #111110; --surface: #1a1a19; --surface-2: #242422; --border: #2f2f2c; --grid: #2a2a28;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86; --accent: #3987e5;
+    --good-text: #3fc43f; --critical-text: #ef7a7a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #111110; --surface: #1a1a19; --surface-2: #242422; --border: #2f2f2c; --grid: #2a2a28;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86; --accent: #3987e5;
+  --good-text: #3fc43f; --critical-text: #ef7a7a;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+.num { font-variant-numeric: tabular-nums; }
+header.appbar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.brand { font-weight: 650; font-size: 16px; letter-spacing: -0.01em; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 550;
+  background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);
+}
+.pill span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.dot.good { background: var(--good); } .dot.warning { background: var(--warning); } .dot.critical { background: var(--critical); }
+.spacer { flex: 1; }
+.updated { color: var(--text-muted); font-size: 12px; }
+nav.tabs { display: flex; gap: 4px; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+nav.tabs button {
+  appearance: none; border: 0; background: none; color: var(--text-secondary); font: inherit; font-weight: 550;
+  padding: 10px 12px; border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap;
+}
+nav.tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
+.count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+main { max-width: 1280px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+.tabpanel { display: grid; gap: 16px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
+.panel h2 { margin: 0 0 12px; font-size: 14px; font-weight: 650; }
+.panel h3 { margin: 18px 0 10px; font-size: 13px; font-weight: 650; }
+.panel-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.panel-head h2 { margin: 0; }
+.sub { color: var(--text-muted); font-size: 12px; }
+.note { color: var(--text-muted); font-size: 12px; margin: 8px 0 0; }
+.banner { border-left: 3px solid var(--warning); }
+.banner.critical { border-left-color: var(--critical); }
+.banner ul, .banner ol { margin: 8px 0 0; padding-left: 20px; color: var(--text-secondary); }
+.banner li button { appearance: none; border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.kpi .k { color: var(--text-secondary); font-size: 12px; font-weight: 550; }
+.kpi .v { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; overflow-wrap: anywhere; }
+.kpi .d { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.empty { display: grid; place-items: center; min-height: 120px; color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px; }
+.steps { margin: 0; padding-left: 20px; color: var(--text-secondary); display: grid; gap: 4px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.seg button { appearance: none; border: 0; background: var(--surface); color: var(--text-secondary); font: inherit; font-size: 13px; padding: 5px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text-primary); font-weight: 600; }
+.btn { appearance: none; font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 8px 16px; background: var(--accent); color: #fff; cursor: pointer; }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn.secondary { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); }
+.btn.danger { background: none; color: var(--critical-text); border: 1px solid var(--border); }
+.btn.small { padding: 5px 10px; font-size: 13px; }
+.row-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-secondary); white-space: nowrap; }
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+.chip.good::before { background: var(--good); } .chip.warn::before { background: var(--warning); } .chip.crit::before { background: var(--critical); } .chip.accent::before { background: var(--accent); }
+.chip.accent { color: var(--text-primary); border-color: var(--accent); }
+.err { color: var(--critical-text); font-weight: 600; }
+.ok { color: var(--good-text); font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+th { color: var(--text-muted); font-weight: 550; font-size: 12px; white-space: nowrap; }
+td.wrap { overflow-wrap: anywhere; min-width: 180px; }
+.logs { font: 12px/1.5 ui-monospace, "Cascadia Mono", Consolas, monospace; max-height: 70vh; overflow: auto; }
+.logs div { padding: 3px 0; border-bottom: 1px solid var(--grid); display: flex; gap: 10px; }
+.logs time { color: var(--text-muted); flex: none; }
+.logs .lv { flex: none; width: 54px; font-weight: 650; color: var(--text-secondary); }
+.logs .error .lv { color: var(--critical-text); } .logs .warn .lv { color: var(--text-primary); } .logs .ok .lv { color: var(--good-text); }
+.logs span:last-child { overflow-wrap: anywhere; }
+form.fields-form label, .fields label { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 550; min-width: 0; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.fields .wide { grid-column: 1 / -1; }
+input, select, textarea {
+  font: inherit; color: var(--text-primary); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; min-width: 0; width: 100%;
+}
+textarea { resize: vertical; line-height: 1.45; }
+input[type="checkbox"] { width: 16px; height: 16px; padding: 0; }
+input[type="color"] { padding: 2px; height: 38px; }
+.fields label.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); font-weight: 400; align-self: end; padding-bottom: 8px; }
+.checks { display: flex; gap: 14px; flex-wrap: wrap; padding: 6px 0; }
+.checks label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-primary); font-weight: 400; }
+.counter { font-weight: 400; color: var(--text-muted); font-size: 12px; }
+.lbl { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.counter.over { color: var(--critical-text); font-weight: 600; }
+details.help { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+details.help summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+details.help ol { margin: 8px 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px; display: grid; gap: 4px; }
+.settings { max-width: 860px; }
+.savebar { position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--border); margin: 16px -16px -16px; padding: 12px 16px; border-radius: 0 0 10px 10px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.vidwrap { position: relative; }
+.vid { display: block; width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: 8px; object-fit: contain; }
+.vid.placeholder { display: grid; place-items: center; color: #bbb; font-size: 13px; text-align: center; padding: 16px; }
+.rank { position: absolute; top: 8px; left: 8px; background: rgb(0 0 0 / 0.72); color: #fff; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+.clip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.clip-title { font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.drafts { display: grid; gap: 16px; }
+.draft { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: grid; grid-template-columns: minmax(200px, 280px) 1fr; gap: 18px; min-width: 0; }
+.draft-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.draft-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.draft form { display: grid; gap: 12px; }
+.draft form label { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); font-weight: 550; }
+.errbox { background: color-mix(in srgb, var(--critical) 10%, transparent); border: 1px solid color-mix(in srgb, var(--critical) 40%, transparent); color: var(--text-primary); border-radius: 8px; padding: 8px 12px; font-size: 13px; overflow-wrap: anywhere; }
+dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
+dl.facts dt { color: var(--text-muted); }
+dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+.src-list { display: grid; gap: 10px; }
+.src { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.src-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.src a { overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .draft { grid-template-columns: 1fr; }
+  .draft-media { max-width: 280px; }
+}
+@media (max-width: 640px) {
+  header.appbar, nav.tabs { padding-left: 16px; padding-right: 16px; }
+  main { padding: 16px; }
+  .clips { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+}
+</style>
+</head>
+<body>
+<header class="appbar">
+  <span class="brand">Shorts Bot</span>
+  <span class="pill" id="ytPill"><span class="dot"></span><span>YouTube…</span></span>
+  <span class="pill" id="jobPill"><span class="dot"></span><span>Bağlanıyor…</span></span>
+  <span class="spacer"></span>
+  <span class="updated" id="nextSlotTop"></span>
+</header>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="home" aria-selected="true">Pano</button>
+  <button role="tab" data-tab="sources" aria-selected="false">Kaynaklar</button>
+  <button role="tab" data-tab="clips" aria-selected="false">Klipler<span class="count" id="clipCount" hidden></span></button>
+  <button role="tab" data-tab="drafts" aria-selected="false">Taslaklar<span class="count" id="draftCount" hidden></span></button>
+  <button role="tab" data-tab="schedule" aria-selected="false">Takvim</button>
+  <button role="tab" data-tab="logs" aria-selected="false">Log</button>
+  <button role="tab" data-tab="settings" aria-selected="false">Ayarlar</button>
+</nav>
+
+<main>
+  <section id="tab-home" class="tabpanel">
+    <div id="setup"></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="panel">
+      <div class="panel-head"><h2>Onay bekleyen taslaklar</h2><span class="spacer"></span><button class="btn small secondary" data-goto="drafts">Taslaklara git</button></div>
+      <div id="homeReady"></div>
+    </div>
+    <div class="panel">
+      <h2>Yaklaşan yayınlar</h2>
+      <div id="homeUpcoming"></div>
+    </div>
+    <div class="panel">
+      <h2>Nasıl çalışır</h2>
+      <ol class="steps">
+        <li><b>Kaynaklar</b>’a video bağlantısını ekle. OpusClip videodan klipleri çıkarır ve en yüksek puanlıyı en üste koyar.</li>
+        <li>Uygulama en iyi kliplerden taslak hazırlar: Claude klibe bakıp seslendirme metnini, başlığı ve etiketleri yazar, ElevenLabs seslendirir, kelime kelime altyazı ve üst başlık eklenir.</li>
+        <li><b>Taslaklar</b>’da videoyu izle, metni düzelt, <b>Onayla</b>. Onaylananlar sırayla <span id="cadence">her 2 günde bir</span> yayınlanır.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="tab-sources" class="tabpanel" hidden>
+    <form class="panel" id="sourceForm" autocomplete="off">
+      <h2>Yeni video ekle</h2>
+      <div class="fields">
+        <label class="wide">Video bağlantısı <input id="srcUrl" type="url" required placeholder="https://www.youtube.com/watch?v=..."></label>
+        <label class="wide"><span class="lbl">Bu video ne hakkında? <span class="counter">Claude metni yazarken kullanır: maç, takımlar, oyuncular, tarih…</span></span>
+          <textarea id="srcNote" rows="2" maxlength="1000" placeholder="örnek: 2024 Galatasaray - Fenerbahçe derbisi, 2. yarı"></textarea></label>
+        <label class="wide">OpusClip neyi arasın? (isteğe bağlı) <input id="srcPrompt" maxlength="300" placeholder="örnek: goller, kurtarışlar ve kavgalar"></label>
+      </div>
+      <div class="row-actions" style="margin-top:14px">
+        <button class="btn" id="srcAdd" type="submit">OpusClip’e gönder</button>
+        <span class="note" id="srcMsg" role="status" style="margin:0"></span>
+      </div>
+      <p class="note">OpusClip her dakika video için 1 kredi harcar; API’den açılan her proje en az 10 kredi tutar. “OpusClip neyi arasın?” sadece ClipAnything modelinde kullanılır.</p>
+    </form>
+    <div class="panel">
+      <h2>Eklenen videolar</h2>
+      <div class="src-list" id="sources"></div>
+    </div>
+  </section>
+
+  <section id="tab-clips" class="tabpanel" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>OpusClip klipleri</h2>
+        <span class="sub">#1 = OpusClip’in en yüksek puan verdiği klip</span>
+        <span class="spacer"></span>
+        <div class="seg" id="clipSeg">
+          <button data-f="new" aria-pressed="true">Kullanılmamış</button>
+          <button data-f="drafted" aria-pressed="false">Taslak yapılan</button>
+          <button data-f="skipped" aria-pressed="false">Atlanan</button>
+          <button data-f="all" aria-pressed="false">Tümü</button>
+        </div>
+      </div>
+      <div class="clips" id="clips"></div>
+    </div>
+  </section>
+
+  <section id="tab-drafts" class="tabpanel" hidden>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Taslaklar</h2>
+        <span class="sub" id="draftSlotNote"></span>
+        <span class="spacer"></span>
+        <div class="seg" id="draftSeg">
+          <button data-f="ready" aria-pressed="true">Onay bekleyen</button>
+          <button data-f="work" aria-pressed="false">Hazırlanan</button>
+          <button data-f="booked" aria-pressed="false">Onaylanan</button>
+          <button data-f="all" aria-pressed="false">Tümü</button>
+        </div>
+      </div>
+      <div class="drafts" id="drafts"></div>
+    </div>
+  </section>
+
+  <section id="tab-schedule" class="tabpanel" hidden>
+    <div class="panel">
+      <h2>Yayın takvimi</h2>
+      <p class="note" id="schedNote" style="margin:0 0 12px"></p>
+      <div class="table-wrap" id="schedule"></div>
+    </div>
+  </section>
+
+  <section id="tab-logs" class="tabpanel" hidden>
+    <div class="panel">
+      <h2>Log (en yeni üstte)</h2>
+      <div class="logs" id="logs"></div>
+    </div>
+  </section>
+
+  <section id="tab-settings" class="tabpanel" hidden>
+    <form class="panel settings" id="settingsForm" autocomplete="off">
+      <p class="note" style="margin:0 0 14px">Kayıtlı API anahtarlarının yerinde son 4 hanesi görünür; değiştirmeyeceksen o alanı boş bırak.</p>
+      <h2 id="set-opus">OpusClip</h2>
+      <div class="fields">
+        <label>API anahtarı <input id="sOpusKey" type="password" spellcheck="false"></label>
+        <label>Org ID (birden fazla organizasyonun varsa) <input id="sOpusOrg" spellcheck="false" placeholder="org_..."></label>
+        <label>Klip modeli <select id="sOpusModel"></select></label>
+        <label>Video türü <select id="sOpusGenre"></select></label>
+        <label>Video dili <input id="sOpusLang" spellcheck="false" placeholder="auto"></label>
+        <label>Marka şablonu ID (isteğe bağlı) <input id="sOpusTemplate" spellcheck="false" placeholder="OpusClip’teki varsayılan şablon kullanılır"></label>
+        <div class="wide"><span class="sub">Klip süreleri (saniye)</span><div class="checks" id="sBuckets"></div></div>
+        <label class="check wide"><input id="sOpusCaptions" type="checkbox"> OpusClip de kendi altyazısını eklesin (seslendirme altyazısıyla üst üste biner, genelde kapalı kalmalı)</label>
+      </div>
+      <p class="note">API anahtarı: <b>clip.opus.pro/dashboard</b> → sol alt köşe. API, OpusClip’in Pro, Max ve Business planlarında açık. <b>ClipAnything</b> spor ve maç görüntülerinde daha iyi; <b>ClipBasic</b> konuşan kafa videoları için.</p>
+
+      <h2 id="set-claude" style="margin-top:24px">Claude (seslendirme metni)</h2>
+      <div class="fields">
+        <label>API anahtarı <input id="sClaudeKey" type="password" spellcheck="false" placeholder="sk-ant-..."></label>
+        <label>Model <select id="sClaudeModel"></select></label>
+        <label>Dil <select id="sLang"></select></label>
+        <label class="wide"><span class="lbl">Kanal tarzı <span class="counter">Claude her metni bu tarza göre yazar</span></span><textarea id="sStyle" rows="4" maxlength="2000"></textarea></label>
+      </div>
+      <p class="note">Anahtarı Claude Console’dan (platform.claude.com) API Keys bölümünden alırsın. Claude klipten 4 kare görür, klibin konuşmasını ve senin notlarını okur; emin olmadığı isim, skor ya da tarihi uydurmaz.</p>
+
+      <h2 id="set-eleven" style="margin-top:24px">ElevenLabs (seslendirme)</h2>
+      <div class="fields">
+        <label>API anahtarı <input id="sElevenKey" type="password" spellcheck="false"></label>
+        <label>Model <select id="sElevenModel"></select></label>
+        <label class="wide">Ses
+          <span class="row-actions"><select id="sVoice" style="flex:1;min-width:200px"></select><button class="btn small secondary" type="button" id="loadVoices">Sesleri getir</button><button class="btn small secondary" type="button" id="playVoice" disabled>Dinle</button></span>
+        </label>
+        <label>Konuşma hızı (0,7–1,2) <input id="sSpeed" type="number" min="0.7" max="1.2" step="0.05"></label>
+        <label>Ses sabitliği (0–1, düşük = daha duygulu) <input id="sStability" type="number" min="0" max="1" step="0.05"></label>
+      </div>
+      <p class="note" id="voiceMsg">Anahtarı ElevenLabs hesabında Developers → API Keys bölümünden alırsın. Anahtarı kaydettikten sonra “Sesleri getir”e bas.</p>
+
+      <h2 id="set-video" style="margin-top:24px">Video</h2>
+      <div class="fields">
+        <label>Klibin orijinal sesi (%) <input id="sOrigVol" type="number" min="0" max="100" step="5"></label>
+        <label>Arka plan müziği (%) <input id="sMusicVol" type="number" min="0" max="100" step="1"></label>
+        <label>Üst başlık süresi (sn, 0 = video boyunca) <input id="sHookSec" type="number" min="0" max="60" step="0.5"></label>
+        <label>Altyazı konumu <select id="sCapPos"><option value="lower">Alt kısım</option><option value="middle">Orta</option></select></label>
+        <label>Vurgulanan kelime rengi <input id="sHighlight" type="color"></label>
+      </div>
+      <p class="note">Müzik: aşağıdaki klasöre koyduğun mp3/m4a/wav dosyalarından her videoya rastgele biri eklenir. Klasör boşsa müzik eklenmez. Telifsiz müzik kullan (örneğin YouTube Ses Kitaplığı).
+        <br><span id="musicDir" class="num"></span> <button class="btn small secondary" type="button" id="openMusic">Müzik klasörünü aç</button></p>
+
+      <h2 id="set-youtube" style="margin-top:24px">YouTube</h2>
+      <div class="fields">
+        <label>Google Client ID <input id="sGoogleId" spellcheck="false" placeholder="....apps.googleusercontent.com"></label>
+        <label>Google Client secret (varsa) <input id="sGoogleSecret" type="password" spellcheck="false"></label>
+        <div class="wide row-actions">
+          <span id="ytStatus" class="chip">…</span>
+          <button class="btn small" type="button" id="ytConnect">YouTube’a bağlan</button>
+          <button class="btn small danger" type="button" id="ytDisconnect">Bağlantıyı kes</button>
+          <span class="note" id="ytMsg" style="margin:0"></span>
+        </div>
+        <label>Kategori <select id="sCategory"></select></label>
+        <label class="check"><input id="sKids" type="checkbox"> Çocuklar için yapıldı</label>
+        <label class="check wide"><input id="sSynthetic" type="checkbox"> Videolarda gerçekçi “değiştirilmiş veya yapay” içerik var (gerçek birinin sesini taklit eden bir ses kullanıyorsan işaretle)</label>
+        <label class="wide">Açıklamanın sonuna eklenecek metin <textarea id="sFooter" rows="2" maxlength="500"></textarea></label>
+      </div>
+      <details class="help">
+        <summary>Google Client ID nasıl alınır? (bir kerelik, ~10 dakika)</summary>
+        <ol>
+          <li><b>console.cloud.google.com</b> adresinde yeni bir proje oluştur.</li>
+          <li>API’ler ve Hizmetler → Kitaplık → <b>YouTube Data API v3</b> → Etkinleştir.</li>
+          <li><b>Google Auth Platform</b> (OAuth izin ekranı): uygulama adı ve e-postanı gir, kitle olarak <b>Harici (External)</b> seç.</li>
+          <li>Kitle (Audience) sayfasında <b>Uygulamayı yayınla</b>’ya bas (“In production”). Test modunda kalırsa Google bağlantıyı 7 günde bir koparır.</li>
+          <li>İstemciler (Clients) → İstemci oluştur → Uygulama türü <b>Masaüstü uygulaması</b> → Oluştur. Çıkan Client ID’yi (ve secret’ı) buraya yapıştır, Kaydet.</li>
+          <li><b>YouTube’a bağlan</b>’a bas, kanalın bağlı olduğu Google hesabıyla giriş yap. “Google bu uygulamayı doğrulamadı” uyarısı çıkarsa: Gelişmiş → uygulamana git. Uygulamayı sadece sen kullandığın için bu normal.</li>
+        </ol>
+      </details>
+
+      <h2 id="set-schedule" style="margin-top:24px">Yayın takvimi</h2>
+      <div class="fields">
+        <label>Kaç günde bir <input id="sInterval" type="number" min="1" max="14" step="1"></label>
+        <label>Yayın saati <input id="sTime" type="time"></label>
+        <label class="check"><input id="sAutoPrepare" type="checkbox"> En iyi kliplerden otomatik taslak hazırla</label>
+        <label>Hazır bekleyen taslak sayısı <input id="sBuffer" type="number" min="1" max="5" step="1"></label>
+        <label class="check wide"><input id="sAutoApprove" type="checkbox"> Sırada onaylı video yoksa en eski hazır taslağı benim yerime onayla</label>
+      </div>
+      <p class="note">Onaylanan video YouTube’a hemen yüklenir ve gizli bekler; yayın saati gelince YouTube onu herkese açar. O saatte bilgisayarın kapalı olması sorun değil.</p>
+
+      <div class="savebar">
+        <button class="btn" id="sSave" type="submit">Kaydet</button>
+        <span class="note" id="sMsg" role="status" style="margin:0"></span>
+        <span class="spacer"></span>
+        <span class="sub" id="dataDir"></span>
+      </div>
+    </form>
+  </section>
+</main>
+<audio id="voiceAudio" hidden></audio>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const api = async (path, body) => {
+    const init = body === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Shorts-Bot': '1' }, body: JSON.stringify(body) };
+    const r = await fetch(path, init);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `Hata ${r.status}`);
+    return d;
+  };
+  const when = (t) => new Date(t).toLocaleString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  const short = (t) => new Date(t).toLocaleString('tr-TR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  const clock = (t) => new Date(t).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const secs = (s) => (s == null ? '—' : `${Math.round(s)} sn`);
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u || ''; } };
+  const words = (t) => (String(t || '').trim().match(/\S+/g) || []).length;
+  const WPS = 2.3;
+
+  function say(el, text, cls) { el.className = cls || 'note'; el.textContent = text; }
+
+  // ---------- tabs ----------
+  const tabs = [...document.querySelectorAll('nav.tabs button')];
+  function showTab(name, anchor) {
+    tabs.forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+    document.querySelectorAll('.tabpanel').forEach((s) => (s.hidden = s.id !== `tab-${name}`));
+    try { localStorage.setItem('tab', name); } catch {}
+    if (name === 'settings') loadSettings().then(() => anchor && $(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    if (S) render();
+  }
+  tabs.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-goto]');
+    if (!g) return;
+    if (g.dataset.filter) {
+      draftFilter = g.dataset.filter;
+      $('draftSeg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.f === draftFilter)));
+    }
+    showTab(g.dataset.goto, g.dataset.anchor);
+  });
+
+  // ---------- status ----------
+  let S = null;
+  let clipFilter = 'new';
+  let draftFilter = 'ready';
+
+  function pill(el, level, text) {
+    el.querySelector('.dot').className = `dot ${level}`;
+    el.lastElementChild.textContent = text;
+  }
+
+  const DRAFT = {
+    queued: ['Sırada', 'warn'],
+    preparing: ['Hazırlanıyor', 'warn'],
+    ready: ['Onay bekliyor', 'accent'],
+    failed: ['Hata', 'crit'],
+    approved: ['Onaylandı · YouTube’a yüklenecek', 'warn'],
+    uploading: ['YouTube’a yükleniyor', 'warn'],
+    scheduled: ['Zamanlandı', 'good'],
+    rejected: ['Reddedildi', ''],
+  };
+  function draftLabel(d) {
+    if (d.status === 'scheduled' && d.slot && Date.parse(d.slot) <= Date.now()) return ['Yayınlandı', 'good'];
+    return DRAFT[d.status] || [d.status, ''];
+  }
+  const SRC = { submitting: ['OpusClip’e gönderiliyor', 'warn'], processing: ['OpusClip işliyor', 'warn'], complete: ['Bitti', 'good'], failed: ['Hata', 'crit'] };
+  const BOOKED = ['approved', 'uploading', 'scheduled'];
+
+  function renderHeader(s) {
+    pill($('ytPill'), s.youtube.connected ? 'good' : 'warning', s.youtube.connected ? `YouTube: ${s.youtube.channelTitle || 'bağlı'}` : 'YouTube bağlı değil');
+    pill($('jobPill'), s.busy ? 'warning' : 'good', s.busy ? `${s.busy}${s.queued ? ` (+${s.queued} sırada)` : ''}` : 'Boşta');
+    $('nextSlotTop').textContent = `Sıradaki boş yayın saati: ${when(s.nextSlot)}`;
+    const ready = s.drafts.filter((d) => d.status === 'ready').length;
+    const fresh = s.clips.filter((c) => c.status === 'new').length;
+    $('draftCount').hidden = !ready; $('draftCount').textContent = ready;
+    $('clipCount').hidden = !fresh; $('clipCount').textContent = fresh;
+    $('cadence').textContent = `her ${s.schedule.intervalDays} günde bir saat ${s.schedule.publishTime}’da`;
+  }
+
+  function renderHome(s) {
+    const failed = s.drafts.filter((d) => d.status === 'failed');
+    $('setup').innerHTML = (s.setup.length
+      ? `<div class="panel banner"><h2 style="margin:0">Kurulum tamamlanmadı</h2><ul>${s.setup.map((x) => `<li><button data-goto="settings" data-anchor="set-${esc(x.section)}">${esc(x.text)}</button></li>`).join('')}</ul></div>`
+      : '') + (failed.length
+      ? `<div class="panel banner critical" style="margin-top:${s.setup.length ? 16 : 0}px"><h2 style="margin:0">${failed.length} taslak hata verdi</h2>
+          <p class="sub" style="margin:6px 0 0">${esc(failed[0].error || '')}</p>
+          <p class="sub" style="margin:6px 0 0">Hatalı taslaklar da hazır taslak sayısına dahil; düzeltilene ya da reddedilene kadar yeni otomatik taslak başlamaz.</p>
+          <div class="row-actions" style="margin-top:10px"><button class="btn small secondary" data-goto="drafts" data-filter="work">Hatalı taslaklara git</button></div></div>`
+      : '');
+    const now = Date.now();
+    const upcoming = s.drafts.filter((d) => BOOKED.includes(d.status) && d.slot && Date.parse(d.slot) > now).sort((a, b) => a.slot.localeCompare(b.slot));
+    const ready = s.drafts.filter((d) => d.status === 'ready');
+    const working = s.drafts.filter((d) => d.status === 'queued' || d.status === 'preparing').length;
+    const processing = s.sources.filter((x) => x.stage === 'processing' || x.stage === 'submitting').length;
+    const fresh = s.clips.filter((c) => c.status === 'new').length;
+    const next = upcoming[0];
+    const tiles = [
+      ['Sıradaki yayın', next ? short(next.slot) : 'Yok', next ? next.title : `Onaylı video yok · boş saat: ${short(s.nextSlot)}`],
+      ['Onay bekleyen', String(ready.length), working ? `${working} taslak hazırlanıyor` : 'taslak'],
+      ['Zamanlanmış', String(upcoming.length), upcoming.length ? `son: ${short(upcoming[upcoming.length - 1].slot)}` : 'video'],
+      ['Kullanılmamış klip', String(fresh), processing ? `${processing} video OpusClip’te işleniyor` : 'OpusClip’ten'],
+    ];
+    $('kpis').innerHTML = tiles.map(([k, v, d]) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v num">${esc(v)}</div><div class="d">${esc(d)}</div></div>`).join('');
+    $('homeReady').innerHTML = ready.length
+      ? `<div class="table-wrap"><table><thead><tr><th>Başlık</th><th>Süre</th><th>Hazırlandı</th></tr></thead><tbody>${ready.map((d) => `<tr><td class="wrap">${esc(d.title)}</td><td class="num">${secs(d.videoSeconds)}</td><td class="num">${short(d.updatedAt)}</td></tr>`).join('')}</tbody></table></div>`
+      : `<div class="empty">${working ? 'Taslaklar hazırlanıyor…' : 'Onay bekleyen taslak yok. Kaynaklar’a video ekle ya da Klipler’den taslak başlat.'}</div>`;
+    $('homeUpcoming').innerHTML = upcoming.length
+      ? `<div class="table-wrap"><table><thead><tr><th>Yayın zamanı</th><th>Başlık</th><th>Durum</th></tr></thead><tbody>${upcoming.map((d) => { const [t, c] = draftLabel(d); return `<tr><td class="num">${esc(when(d.slot))}</td><td class="wrap">${esc(d.title)}</td><td><span class="chip ${c}">${esc(t)}</span></td></tr>`; }).join('')}</tbody></table></div>`
+      : '<div class="empty">Zamanlanmış video yok. Bir taslağı onayladığında burada görünür.</div>';
+  }
+
+  function renderSources(s) {
+    $('sources').innerHTML = s.sources.length
+      ? s.sources.map((x) => {
+        const [t, c] = SRC[x.stage] || [x.stage, ''];
+        return `<div class="src" data-id="${esc(x.id)}">
+          <div class="src-top"><span class="chip ${c}">${esc(t)}</span>${x.stageName && x.stage === 'processing' ? `<span class="sub">${esc(x.stageName)}</span>` : ''}
+            ${x.stage === 'complete' ? `<span class="sub">${x.clipCount} klip</span>` : ''}<span class="spacer"></span><span class="sub num">${short(x.createdAt)}</span></div>
+          <a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.url)}</a>
+          ${x.note ? `<div class="sub">Not: ${esc(x.note)}</div>` : ''}${x.prompt ? `<div class="sub">OpusClip’e tarif: ${esc(x.prompt)}</div>` : ''}
+          ${x.error ? `<div class="errbox">${esc(x.error)}</div>` : ''}
+          <div class="row-actions">${x.stage !== 'complete' ? `<button class="btn small secondary" data-act="check">${x.stage === 'failed' ? 'Tekrar dene' : 'Şimdi kontrol et'}</button>` : ''}<button class="btn small danger" data-act="delete">Sil</button></div>
+        </div>`;
+      }).join('')
+      : '<div class="empty">Henüz video eklenmedi.</div>';
+  }
+
+  let clipsSig = '';
+  function renderClips(s) {
+    const list = s.clips.filter((c) => clipFilter === 'all' || c.status === clipFilter);
+    const sig = clipFilter + list.map((c) => `${c.key}:${c.status}:${c.previewSrc}`).join('|');
+    if (sig === clipsSig) return;
+    clipsSig = sig;
+    const STATUS = { new: '', drafted: 'Taslak yapıldı', skipped: 'Atlandı' };
+    $('clips').innerHTML = list.length
+      ? list.map((c) => `<article class="clip" data-key="${esc(c.key)}">
+          <div class="vidwrap">${c.previewSrc ? `<video class="vid" src="${esc(c.previewSrc)}#t=0.5" preload="metadata" controls playsinline></video>` : '<div class="vid placeholder">Önizleme yok</div>'}<span class="rank">#${c.rank}</span></div>
+          <div class="clip-title">${esc(c.title || 'Başlıksız klip')}</div>
+          <div class="sub">${secs(c.seconds)} · ${esc(host(c.sourceUrl))}${STATUS[c.status] ? ` · ${STATUS[c.status]}` : ''}</div>
+          <div class="row-actions">${c.status === 'drafted' ? '' : `<button class="btn small" data-act="draft">Taslak hazırla</button>`}
+            ${c.status === 'new' ? '<button class="btn small secondary" data-act="skip">Atla</button>' : c.status === 'skipped' ? '<button class="btn small secondary" data-act="unskip">Geri al</button>' : ''}</div>
+        </article>`).join('')
+      : `<div class="empty">${clipFilter === 'new' ? 'Kullanılmamış klip yok. Kaynaklar’dan video ekle; OpusClip bitirince klipler burada çıkar.' : 'Bu filtrede klip yok.'}</div>`;
+  }
+
+  // Cards are rebuilt only when their draft changes and the user is not editing them.
+  const cards = new Map();
+  function draftMatches(d) {
+    if (draftFilter === 'ready') return d.status === 'ready';
+    if (draftFilter === 'work') return ['queued', 'preparing', 'failed'].includes(d.status);
+    if (draftFilter === 'booked') return BOOKED.includes(d.status);
+    return true;
+  }
+  function draftCard(d) {
+    const [label, cls] = draftLabel(d);
+    const editable = d.status === 'ready' || d.status === 'failed';
+    const media = d.videoSrc && d.status !== 'preparing'
+      ? `<video class="vid" src="${esc(d.videoSrc)}" preload="metadata" controls playsinline></video>`
+      : `<div class="vid placeholder">${d.status === 'preparing' || d.status === 'queued' ? `Hazırlanıyor…<br>${esc(d.step || 'sırada')}` : 'Video yok'}</div>`;
+    const info = d.clip ? `OpusClip #${d.clip.rank} · klip ${secs(d.clip.seconds)} · ${esc(host(d.clip.sourceUrl))}` : '';
+    let body = '';
+    if (editable || d.status === 'queued') {
+      const dis = editable ? '' : 'disabled';
+      body = `<form data-id="${esc(d.id)}">
+        <label>Üst başlık (videonun üstünde yazar) <input name="hook" maxlength="60" value="${esc(d.hook)}" ${dis}></label>
+        <label><span class="lbl">Seslendirme metni <span class="counter" data-c="narration"></span></span><textarea name="narration" rows="6" ${dis}>${esc(d.narration)}</textarea></label>
+        <label><span class="lbl">YouTube başlığı <span class="counter" data-c="title"></span></span><input name="title" maxlength="100" value="${esc(d.title)}" ${dis}></label>
+        <label>Açıklama <textarea name="description" rows="3" ${dis}>${esc(d.description)}</textarea></label>
+        <label>Etiketler (virgülle) <input name="tags" value="${esc((d.tags || []).join(', '))}" ${dis}></label>
+        <label>Claude’a not (yeniden yazdırırken kullanılır) <input name="instructions" value="${esc(d.instructions)}" placeholder="örnek: daha esprili olsun, oyuncunun adı Icardi" ${dis}></label>
+        ${editable ? `<div class="row-actions">
+          <button class="btn secondary" type="submit" data-act="save">Kaydet</button>
+          <button class="btn secondary" type="button" data-act="rewrite">Claude yeniden yazsın</button>
+          <button class="btn secondary" type="button" data-act="revoice">Sesi yenile</button>
+          <span class="spacer"></span>
+          <button class="btn danger" type="button" data-act="reject">Reddet</button>
+          ${d.status === 'ready' ? '<button class="btn" type="button" data-act="approve">Onayla ve zamanla</button>' : '<button class="btn" type="button" data-act="retry">Tekrar dene</button>'}
+        </div>` : ''}
+        <p class="note" data-msg style="margin:0"></p>
+      </form>`;
+    } else if (d.status === 'preparing') {
+      body = `<dl class="facts"><dt>Adım</dt><dd>${esc(d.step || '')}</dd>${d.hook ? `<dt>Üst başlık</dt><dd>${esc(d.hook)}</dd>` : ''}${d.narration ? `<dt>Metin</dt><dd>${esc(d.narration)}</dd>` : ''}</dl>`;
+    } else if (BOOKED.includes(d.status)) {
+      const link = d.youtubeId ? `https://www.youtube.com/shorts/${encodeURIComponent(d.youtubeId)}` : '';
+      body = `<dl class="facts">
+          <dt>Yayın zamanı</dt><dd>${d.slot ? esc(when(d.slot)) : '—'}</dd>
+          <dt>Başlık</dt><dd>${esc(d.title)}</dd>
+          <dt>Süre</dt><dd>${secs(d.videoSeconds)}</dd>
+          ${link ? `<dt>YouTube</dt><dd><a href="${esc(link)}" target="_blank" rel="noreferrer">${esc(link)}</a></dd>` : ''}
+        </dl>
+        ${d.status === 'approved' ? `<div class="row-actions">${d.error ? '<button class="btn small" type="button" data-act="retry-upload">Şimdi tekrar dene</button>' : ''}<button class="btn small secondary" type="button" data-act="unapprove">Onayı geri al</button></div>` : ''}
+        ${d.status === 'scheduled' ? '<p class="note" style="margin:0">Video YouTube’da gizli bekliyor; yayın saatinde YouTube herkese açar. Değişiklik için YouTube Studio’yu kullan.</p>' : ''}
+        <p class="note" data-msg style="margin:0"></p>`;
+    } else {
+      body = `<dl class="facts"><dt>Başlık</dt><dd>${esc(d.title)}</dd></dl>`;
+    }
+    const el = document.createElement('article');
+    el.className = 'draft';
+    el.dataset.id = d.id;
+    el.innerHTML = `<div class="draft-media">${media}</div>
+      <div class="draft-body">
+        <div class="draft-head"><span class="chip ${cls}">${esc(label)}</span>${d.status === 'preparing' && d.step ? `<span class="sub">${esc(d.step)}</span>` : ''}<span class="spacer"></span><span class="sub">${info}</span></div>
+        ${d.error ? `<div class="errbox">${esc(d.error)}</div>` : ''}
+        ${body}
+      </div>`;
+    el._d = d;
+    updateCounters(el);
+    return el;
+  }
+  function updateCounters(el) {
+    const f = el.querySelector('form');
+    if (!f || !f.narration) return;
+    const d = el._d;
+    const n = words(f.narration.value);
+    const est = n / WPS;
+    const clip = d.clipSeconds || d.clip?.seconds || 0;
+    const c = el.querySelector('[data-c="narration"]');
+    c.textContent = `${n} kelime · ~${Math.round(est)} sn konuşma${clip ? ` · klip ${Math.round(clip)} sn` : ''} · hedef ~${d.targetWords} kelime`;
+    c.className = `counter${clip && est > clip + 3 ? ' over' : ''}`;
+    const t = el.querySelector('[data-c="title"]');
+    t.textContent = `${f.title.value.length}/100`;
+    const changed = f.hook.value.trim() !== d.hook || f.narration.value.trim() !== d.narration;
+    const save = f.querySelector('[data-act="save"]');
+    if (save) save.textContent = changed ? 'Kaydet ve videoyu yenile' : 'Kaydet';
+    const approve = f.querySelector('[data-act="approve"]');
+    if (approve) { approve.disabled = el._dirty; approve.title = el._dirty ? 'Önce değişiklikleri kaydet' : ''; }
+  }
+  function renderDrafts(s) {
+    const list = s.drafts.filter(draftMatches);
+    const box = $('drafts');
+    const keep = new Set(list.map((d) => d.id));
+    for (const [id, el] of cards) if (!keep.has(id)) { el.remove(); cards.delete(id); }
+    let prev = null;
+    for (const d of list) {
+      const sig = `${d.status}|${d.updatedAt}|${d.step}|${d.error}`;
+      let el = cards.get(d.id);
+      if (!el || (el._sig !== sig && !el._dirty)) {
+        const fresh = draftCard(d);
+        fresh._sig = sig;
+        if (el) el.replaceWith(fresh); else box.appendChild(fresh);
+        el = fresh;
+        cards.set(d.id, el);
+      }
+      const want = prev ? prev.nextSibling : box.firstChild;
+      if (want !== el) box.insertBefore(el, want);
+      prev = el;
+    }
+    let empty = box.querySelector('.empty');
+    if (!list.length && !empty) {
+      const msg = { ready: 'Onay bekleyen taslak yok.', work: 'Hazırlanan taslak yok.', booked: 'Onaylanmış video yok.', all: 'Henüz taslak yok.' }[draftFilter];
+      box.insertAdjacentHTML('beforeend', `<div class="empty">${msg}</div>`);
+    } else if (list.length && empty) empty.remove();
+    $('draftSlotNote').textContent = `Onaylarsan: ${when(s.nextSlot)}`;
+  }
+
+  function renderSchedule(s) {
+    $('schedNote').textContent = `Onaylanan videolar sırayla her ${s.schedule.intervalDays} günde bir saat ${s.schedule.publishTime}’da yayınlanır. Video YouTube’a hemen yüklenir ve gizli bekler; saati gelince YouTube herkese açar. Sıradaki boş saat: ${when(s.nextSlot)}.`;
+    const list = s.drafts.filter((d) => BOOKED.includes(d.status)).sort((a, b) => (b.slot || '').localeCompare(a.slot || ''));
+    $('schedule').innerHTML = list.length
+      ? `<table><thead><tr><th>Yayın zamanı</th><th>Başlık</th><th>Durum</th><th>YouTube</th></tr></thead><tbody>${list.map((d) => {
+        const [t, c] = draftLabel(d);
+        const link = d.youtubeId ? `https://www.youtube.com/shorts/${encodeURIComponent(d.youtubeId)}` : '';
+        return `<tr><td class="num">${d.slot ? esc(when(d.slot)) : '—'}</td><td class="wrap">${esc(d.title)}</td><td><span class="chip ${c}">${esc(t)}</span>${d.error ? `<div class="sub err" style="margin-top:4px">${esc(d.error)}</div>` : ''}</td><td>${link ? `<a href="${esc(link)}" target="_blank" rel="noreferrer">Aç</a>` : '—'}</td></tr>`;
+      }).join('')}</tbody></table>`
+      : '<div class="empty">Henüz onaylanmış video yok.</div>';
+  }
+
+  function renderLogs(s) {
+    const LV = { info: 'BİLGİ', warn: 'UYARI', error: 'HATA', ok: 'TAMAM' };
+    $('logs').innerHTML = s.logs.length
+      ? s.logs.map((l) => `<div class="${esc(l.level)}"><time>${esc(clock(l.time))}</time><span class="lv">${LV[l.level] || ''}</span><span>${esc(l.msg)}</span></div>`).join('')
+      : '<div class="empty">Log yok</div>';
+  }
+
+  function render() {
+    renderHeader(S);
+    const tab = tabs.find((b) => b.getAttribute('aria-selected') === 'true')?.dataset.tab;
+    if (tab === 'home') renderHome(S);
+    if (tab === 'sources') renderSources(S);
+    if (tab === 'clips') renderClips(S);
+    if (tab === 'drafts') renderDrafts(S);
+    if (tab === 'schedule') renderSchedule(S);
+    if (tab === 'logs') renderLogs(S);
+    if (tab === 'settings') renderYt(S);
+  }
+
+  async function refresh() {
+    try {
+      S = await api('/api/status');
+      render();
+    } catch {
+      pill($('jobPill'), 'critical', 'Uygulama servisine ulaşılamıyor');
+    }
+  }
+
+  // ---------- sources ----------
+  $('sourceForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('srcAdd');
+    btn.disabled = true;
+    try {
+      await api('/api/sources', { url: $('srcUrl').value, note: $('srcNote').value, prompt: $('srcPrompt').value });
+      $('srcUrl').value = ''; $('srcNote').value = ''; $('srcPrompt').value = '';
+      say($('srcMsg'), 'Eklendi. OpusClip videoyu işleyince klipler Klipler sekmesine gelir (video uzunluğuna göre 5-30 dakika).', 'ok');
+      refresh();
+    } catch (err) {
+      say($('srcMsg'), err.message, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $('sources').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const id = b.closest('[data-id]').dataset.id;
+    if (b.dataset.act === 'delete' && !confirm('Bu video ve kullanılmamış klipleri silinsin mi? (OpusClip’teki proje silinmez)')) return;
+    b.disabled = true;
+    try { await api(`/api/sources/${id}/${b.dataset.act}`, {}); } catch (err) { alert(err.message); }
+    refresh();
+  });
+
+  // ---------- clips ----------
+  $('clipSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    clipFilter = b.dataset.f;
+    $('clipSeg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    clipsSig = '';
+    if (S) renderClips(S);
+  });
+  $('clips').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const key = b.closest('[data-key]').dataset.key;
+    b.disabled = true;
+    try {
+      await api(`/api/clips/${encodeURIComponent(key)}/${b.dataset.act}`, {});
+      if (b.dataset.act === 'draft') b.textContent = 'Taslak başlatıldı';
+    } catch (err) { alert(err.message); b.disabled = false; }
+    refresh();
+  });
+
+  // ---------- drafts ----------
+  $('draftSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    draftFilter = b.dataset.f;
+    $('draftSeg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (S) renderDrafts(S);
+  });
+  $('drafts').addEventListener('input', (e) => {
+    const el = e.target.closest('.draft');
+    if (!el) return;
+    el._dirty = true;
+    updateCounters(el);
+  });
+  const formBody = (f) => ({ hook: f.hook.value, narration: f.narration.value, title: f.title.value, description: f.description.value, tags: f.tags.value, instructions: f.instructions.value });
+  async function draftAction(el, act) {
+    const id = el.dataset.id;
+    const f = el.querySelector('form');
+    const msgEl = el.querySelector('[data-msg]');
+    const buttons = el.querySelectorAll('button');
+    if (act === 'reject' && !confirm('Bu taslak reddedilsin mi? Klip tekrar kullanılmaz.')) return;
+    buttons.forEach((b) => (b.disabled = true));
+    if (msgEl) say(msgEl, 'İşleniyor…');
+    try {
+      if (act === 'save') await api(`/api/drafts/${id}/save`, formBody(f));
+      else if (act === 'rewrite') {
+        if (el._dirty) await api(`/api/drafts/${id}/save`, { title: f.title.value, description: f.description.value, tags: f.tags.value, instructions: f.instructions.value });
+        await api(`/api/drafts/${id}/rewrite`, { instructions: f.instructions.value });
+      } else if (act === 'approve') {
+        const r = await api(`/api/drafts/${id}/approve`, {});
+        if (msgEl) say(msgEl, `Onaylandı: ${when(r.slot)} yayınlanacak.`, 'ok');
+      } else await api(`/api/drafts/${id}/${act}`, {});
+      el._dirty = false;
+    } catch (err) {
+      if (msgEl) say(msgEl, err.message, 'err'); else alert(err.message);
+      buttons.forEach((b) => (b.disabled = false));
+      updateCounters(el);
+      return;
+    }
+    await refresh();
+  }
+  $('drafts').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b || b.type === 'submit') return;
+    draftAction(b.closest('.draft'), b.dataset.act);
+  });
+  $('drafts').addEventListener('submit', (e) => {
+    e.preventDefault();
+    draftAction(e.target.closest('.draft'), 'save');
+  });
+
+  // ---------- settings ----------
+  let options = null;
+  let settingsLoaded = false;
+  const fill = (sel, entries, value) => {
+    sel.innerHTML = entries.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+    sel.value = value;
+  };
+  const GENRES_TR = { Auto: 'Otomatik', 'Sports commentary': 'Spor yorumu', Commentary: 'Yorum', Podcast: 'Podcast', 'Q&A': 'Soru-cevap', Comedy: 'Komedi', Gaming: 'Oyun', News: 'Haber', Vlog: 'Vlog', 'Motivational speech': 'Motivasyon konuşması', Listicle: 'Liste', 'Product reviews': 'Ürün inceleme', 'How-to': 'Nasıl yapılır', Marketing: 'Pazarlama', Webinar: 'Webinar', Academic: 'Akademik', Church: 'Dini', Others: 'Diğer' };
+
+  async function loadSettings(force) {
+    if (settingsLoaded && !force) return;
+    if (!options) options = await api('/api/options');
+    const s = await api('/api/settings');
+    settingsLoaded = true;
+    const keyPh = (hint) => (hint ? `Kayıtlı: ${hint}` : 'Henüz girilmedi');
+    $('sOpusKey').value = ''; $('sOpusKey').placeholder = keyPh(s.opusKeyHint);
+    $('sOpusOrg').value = s.opusOrgId;
+    fill($('sOpusModel'), options.opusModels.map((m) => [m, m === 'ClipAnything' ? 'ClipAnything (spor için önerilen)' : 'ClipBasic (konuşan kafa)']), s.opusModel);
+    fill($('sOpusGenre'), options.opusGenres.map((g) => [g, GENRES_TR[g] || g]), s.opusGenre);
+    $('sOpusLang').value = s.opusSourceLang;
+    $('sOpusTemplate').value = s.opusBrandTemplateId;
+    $('sBuckets').innerHTML = options.clipBuckets.map((b) => `<label><input type="checkbox" name="bucket" value="${esc(b)}" ${s.opusClipBuckets.includes(b) ? 'checked' : ''}> ${esc(b.replace('-', '–'))} sn</label>`).join('');
+    $('sOpusCaptions').checked = s.opusCaptions;
+    $('sClaudeKey').value = ''; $('sClaudeKey').placeholder = keyPh(s.anthropicKeyHint);
+    fill($('sClaudeModel'), Object.entries(options.claudeModels), s.claudeModel);
+    fill($('sLang'), Object.entries(options.languages), s.language);
+    $('sStyle').value = s.channelStyle;
+    $('sElevenKey').value = ''; $('sElevenKey').placeholder = keyPh(s.elevenKeyHint);
+    fill($('sElevenModel'), Object.entries(options.elevenModels), s.elevenModel);
+    voiceList = voiceList.length ? voiceList : s.voiceId ? [{ id: s.voiceId, name: s.voiceName || s.voiceId, labels: {}, previewUrl: '' }] : [];
+    renderVoices(s.voiceId);
+    $('sSpeed').value = s.voiceSpeed;
+    $('sStability').value = s.voiceStability;
+    $('sOrigVol').value = s.originalVolume;
+    $('sMusicVol').value = s.musicVolume;
+    $('sHookSec').value = s.hookSeconds;
+    $('sCapPos').value = s.captionPosition;
+    $('sHighlight').value = s.highlightColor;
+    $('musicDir').textContent = s.musicDir;
+    $('sGoogleId').value = s.googleClientId;
+    $('sGoogleSecret').value = ''; $('sGoogleSecret').placeholder = s.googleSecretHint ? `Kayıtlı: ${s.googleSecretHint}` : 'Masaüstü istemcide zorunlu değil';
+    fill($('sCategory'), Object.entries(options.categories), s.categoryId);
+    $('sKids').checked = s.madeForKids;
+    $('sSynthetic').checked = s.syntheticMedia;
+    $('sFooter').value = s.descriptionFooter;
+    $('sInterval').value = s.intervalDays;
+    $('sTime').value = s.publishTime;
+    $('sAutoPrepare').checked = s.autoPrepare;
+    $('sBuffer').value = s.draftBuffer;
+    $('sAutoApprove').checked = s.autoApprove;
+    $('dataDir').textContent = `Veriler: ${s.dataDir}`;
+    if (S) renderYt(S);
+  }
+
+  let voiceList = [];
+  function renderVoices(selected) {
+    const label = (v) => {
+      const l = v.labels || {};
+      const bits = [l.gender, l.age, l.accent, l.language, l.use_case || l['use case']].filter(Boolean);
+      return `${v.name}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+    };
+    $('sVoice').innerHTML = (voiceList.length ? '' : '<option value="">Önce “Sesleri getir”e bas</option>') + voiceList.map((v) => `<option value="${esc(v.id)}">${esc(label(v))}</option>`).join('');
+    if (selected) $('sVoice').value = selected;
+    $('playVoice').disabled = !voiceList.find((v) => v.id === $('sVoice').value)?.previewUrl;
+  }
+  $('sVoice').addEventListener('change', () => renderVoices($('sVoice').value));
+  $('loadVoices').addEventListener('click', async () => {
+    const b = $('loadVoices');
+    b.disabled = true;
+    say($('voiceMsg'), 'Sesler getiriliyor…');
+    try {
+      const r = await api('/api/voices');
+      const current = $('sVoice').value;
+      voiceList = r.voices;
+      renderVoices(current);
+      say($('voiceMsg'), `${r.voices.length} ses bulundu. Birini seç, “Dinle” ile örneğini dinle, sonra Kaydet. Türkçe için etiketinde Turkish geçen ya da çok dilli bir ses seç.`, 'ok');
+    } catch (err) {
+      say($('voiceMsg'), err.message, 'err');
+    } finally {
+      b.disabled = false;
+    }
+  });
+  $('playVoice').addEventListener('click', () => {
+    const v = voiceList.find((x) => x.id === $('sVoice').value);
+    if (!v?.previewUrl) return;
+    const a = $('voiceAudio');
+    a.src = v.previewUrl;
+    a.play().catch(() => say($('voiceMsg'), 'Örnek çalınamadı', 'err'));
+  });
+  $('openMusic').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/open-folder', { which: 'music' });
+      if (!r.opened) say($('sMsg'), `Klasör: ${r.path}`);
+    } catch (err) { say($('sMsg'), err.message, 'err'); }
+  });
+
+  function renderYt(s) {
+    const el = $('ytStatus');
+    el.className = `chip ${s.youtube.connected ? 'good' : 'warn'}`;
+    el.textContent = s.youtube.connected ? `Bağlı: ${s.youtube.channelTitle || s.youtube.channelId}` : 'Bağlı değil';
+    $('ytDisconnect').hidden = !s.youtube.connected;
+    $('ytConnect').textContent = s.youtube.connected ? 'Başka kanala bağlan' : 'YouTube’a bağlan';
+  }
+  $('ytConnect').addEventListener('click', async () => {
+    try {
+      if ($('sGoogleId').value.trim()) await api('/api/settings', { googleClientId: $('sGoogleId').value, googleClientSecret: $('sGoogleSecret').value });
+      const r = await api('/api/youtube/connect', {});
+      window.open(r.url, '_blank');
+      say($('ytMsg'), 'Tarayıcıda Google sayfası açıldı. İzin verdikten sonra buraya dön; durum kendiliğinden güncellenir.', 'ok');
+    } catch (err) {
+      say($('ytMsg'), err.message, 'err');
+    }
+  });
+  $('ytDisconnect').addEventListener('click', async () => {
+    if (!confirm('YouTube bağlantısı kesilsin mi? Zamanlanmış videolar YouTube’da kalır.')) return;
+    try { await api('/api/youtube/disconnect', {}); refresh(); } catch (err) { say($('ytMsg'), err.message, 'err'); }
+  });
+
+  $('settingsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('sSave');
+    btn.disabled = true;
+    say($('sMsg'), 'Kaydediliyor…');
+    const voice = voiceList.find((v) => v.id === $('sVoice').value);
+    const body = {
+      opusApiKey: $('sOpusKey').value, opusOrgId: $('sOpusOrg').value, opusModel: $('sOpusModel').value, opusGenre: $('sOpusGenre').value,
+      opusClipBuckets: [...document.querySelectorAll('input[name="bucket"]:checked')].map((x) => x.value),
+      opusSourceLang: $('sOpusLang').value || 'auto', opusBrandTemplateId: $('sOpusTemplate').value, opusCaptions: $('sOpusCaptions').checked,
+      anthropicApiKey: $('sClaudeKey').value, claudeModel: $('sClaudeModel').value, language: $('sLang').value, channelStyle: $('sStyle').value,
+      elevenApiKey: $('sElevenKey').value, elevenModel: $('sElevenModel').value,
+      voiceId: $('sVoice').value, voiceName: voice ? voice.name : '',
+      voiceSpeed: Number($('sSpeed').value), voiceStability: Number($('sStability').value),
+      originalVolume: Number($('sOrigVol').value), musicVolume: Number($('sMusicVol').value), hookSeconds: Number($('sHookSec').value),
+      captionPosition: $('sCapPos').value, highlightColor: $('sHighlight').value,
+      googleClientId: $('sGoogleId').value, googleClientSecret: $('sGoogleSecret').value, categoryId: $('sCategory').value,
+      madeForKids: $('sKids').checked, syntheticMedia: $('sSynthetic').checked, descriptionFooter: $('sFooter').value,
+      intervalDays: Number($('sInterval').value), publishTime: $('sTime').value, autoPrepare: $('sAutoPrepare').checked,
+      draftBuffer: Number($('sBuffer').value), autoApprove: $('sAutoApprove').checked,
+    };
+    try {
+      await api('/api/settings', body);
+      say($('sMsg'), 'Kaydedildi.', 'ok');
+      await loadSettings(true);
+      refresh();
+    } catch (err) {
+      say($('sMsg'), err.message, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  let start = 'home';
+  try { start = localStorage.getItem('tab') || 'home'; } catch {}
+  if (!tabs.some((b) => b.dataset.tab === start)) start = 'home';
+  refresh().then(() => showTab(start));
+  setInterval(refresh, 3000);
+})();
+</script>
+</body>
+</html>

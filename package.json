@@ -1,0 +1,84 @@
+{
+  "name": "shorts-bot",
+  "productName": "Shorts Bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpusClip kliplerini seslendirme ve altyazıyla özgünleştirip YouTube Shorts'a zamanlayan masaüstü uygulaması",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "app": "npm run build:app && electron .",
+    "build:app": "esbuild src/desktop/main.ts --bundle --platform=node --format=cjs --target=node22 --external:electron --outfile=dist/main.cjs --log-level=warning",
+    "panel": "tsx src/cli/panel.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dist:win": "npm run build:app && electron-builder --win --x64"
+  },
+  "author": "Shorts Bot",
+  "build": {
+    "appId": "com.shortsbot.desktop",
+    "productName": "Shorts Bot",
+    "publish": null,
+    "files": [
+      "dist/main.cjs",
+      "src/dashboard/index.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-static",
+        "to": "ffmpeg",
+        "filter": [
+          "ffmpeg.exe",
+          "*.LICENSE",
+          "*.README",
+          "LICENSE"
+        ]
+      },
+      {
+        "from": "assets",
+        "to": "assets"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ShortsBot-Kurulum-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Shorts Bot"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20.12"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^1.7.0",
+    "@types/node": "^26.6.6",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "ffmpeg-static": "^5.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  }
+}
