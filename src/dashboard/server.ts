@@ -71,7 +71,7 @@ export function startDashboard(rt: Runtime, opts: DashboardOptions): Promise<{ p
     const s = (k: string) => String(body[k] ?? '');
     let m: RegExpExecArray | null;
     if (path === '/api/settings') {
-      rt.saveSettings(body);
+      await rt.saveSettings(body);
       return { ok: true };
     }
     if (path === '/api/sources') return rt.addSource(s('url'), s('note'), s('prompt'));

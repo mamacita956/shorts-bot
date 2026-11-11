@@ -106,6 +106,11 @@ export class OpusClient {
     return { projectId, stage: r.stage ?? 'QUEUED', error: r.error ?? undefined };
   }
 
+  /** Confirms the key and the plan's API access with a call that spends no credits. */
+  async check(): Promise<void> {
+    await this.call('/api/brand-templates', { headers: this.headers() });
+  }
+
   async getProject(projectId: string): Promise<OpusProject> {
     const r = await this.call<{ stage?: string; error?: string | null }>(`/api/clip-projects/${encodeURIComponent(projectId)}`, {
       headers: this.headers(),

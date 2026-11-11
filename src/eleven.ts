@@ -61,6 +61,10 @@ export class ElevenClient {
     return { audio: Buffer.from(r.audio_base64, 'base64'), alignment };
   }
 
+  async check(): Promise<void> {
+    await this.call('/v2/voices?page_size=1&include_total_count=false');
+  }
+
   async voices(): Promise<Voice[]> {
     const out: Voice[] = [];
     let token = '';

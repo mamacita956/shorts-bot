@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
+import { ElevenClient } from '../src/eleven';
 import { OpusBusyError, OpusClient } from '../src/opus';
 import { DEFAULTS } from '../src/settings';
 import { YouTube } from '../src/youtube';
@@ -10,6 +11,26 @@ import { sendJson, serve, tempDir, type Fake } from './helpers';
 const fakes: Fake[] = [];
 after(async () => {
   await Promise.all(fakes.map((f) => f.close()));
+});
+
+test('key checks: OpusClip (plan without API access) and ElevenLabs', async () => {
+  const f = await serve((req, res) => {
+    if (req.url === '/api/brand-templates') {
+      if (req.headers.authorization === 'Bearer good') return sendJson(res, 200, []);
+      if (req.headers.authorization === 'Bearer free-plan') return sendJson(res, 403, { message: 'API access not enabled for this org' });
+      return sendJson(res, 401, { message: 'unauthorized' });
+    }
+    if (req.url?.startsWith('/v2/voices?page_size=1')) {
+      return req.headers['xi-api-key'] === 'el-good' ? sendJson(res, 200, { voices: [], has_more: false }) : sendJson(res, 401, { detail: { message: 'Invalid API key' } });
+    }
+    sendJson(res, 404, {});
+  });
+  fakes.push(f);
+  await new OpusClient('good', '', f.url).check();
+  await assert.rejects(new OpusClient('free-plan', '', f.url).check(), /API erişimi açık mı/);
+  await assert.rejects(new OpusClient('bad', '', f.url).check(), /anahtarı geçersiz/);
+  await new ElevenClient('el-good', f.url).check();
+  await assert.rejects(new ElevenClient('el-bad', f.url).check(), /ElevenLabs API anahtarı geçersiz/);
 });
 
 test('OpusClip: limits and errors come back as clear messages', async () => {

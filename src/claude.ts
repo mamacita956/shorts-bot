@@ -112,17 +112,30 @@ export class ScriptWriter {
         output_config: { effort: 'medium', format: betaZodOutputFormat(ScriptSchema) },
       });
     } catch (e) {
-      if (e instanceof Anthropic.AuthenticationError) throw new Error('Claude API anahtarı geçersiz');
-      if (e instanceof Anthropic.PermissionDeniedError) throw new Error('Claude API anahtarının bu modele erişimi yok');
-      if (e instanceof Anthropic.RateLimitError) throw new Error('Claude hız sınırına gelindi; biraz sonra tekrar dene');
-      if (e instanceof Anthropic.BadRequestError) throw new Error(`Claude isteği kabul etmedi: ${e.message}`);
-      if (e instanceof Anthropic.APIConnectionError) throw new Error('Claude sunucusuna bağlanılamadı');
-      if (e instanceof Anthropic.APIError) throw new Error(`Claude hatası ${e.status ?? ''}: ${e.message}`);
-      throw e;
+      throw this.explain(e);
     }
     if (msg.stop_reason === 'refusal') throw new Error('Claude bu klip için metin yazmadı (içerik politikası). Klibi atla ya da talimatı değiştir.');
     if (msg.stop_reason === 'max_tokens') throw new Error('Claude cevabı yarıda kesildi; tekrar dene');
     if (!msg.parsed_output) throw new Error('Claude geçerli bir cevap döndürmedi; tekrar dene');
     return tidy(msg.parsed_output);
+  }
+
+  /** Confirms the key works and can use the chosen model, without generating anything. */
+  async check(): Promise<void> {
+    try {
+      await this.client.models.retrieve(this.model);
+    } catch (e) {
+      throw this.explain(e);
+    }
+  }
+
+  private explain(e: unknown): Error {
+    if (e instanceof Anthropic.AuthenticationError) return new Error('Claude API anahtarı geçersiz');
+    if (e instanceof Anthropic.PermissionDeniedError || e instanceof Anthropic.NotFoundError) return new Error(`Bu Claude API anahtarı ${this.model} modelini kullanamıyor`);
+    if (e instanceof Anthropic.RateLimitError) return new Error('Claude hız sınırına gelindi; biraz sonra tekrar dene');
+    if (e instanceof Anthropic.BadRequestError) return new Error(`Claude isteği kabul etmedi: ${e.message}`);
+    if (e instanceof Anthropic.APIConnectionError) return new Error('Claude sunucusuna bağlanılamadı');
+    if (e instanceof Anthropic.APIError) return new Error(`Claude hatası ${e.status ?? ''}: ${e.message}`);
+    return e as Error;
   }
 }

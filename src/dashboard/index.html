@@ -891,7 +891,9 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     e.preventDefault();
     const btn = $('sSave');
     btn.disabled = true;
-    say($('sMsg'), 'Kaydediliyor…');
+    const newKeys = ['sOpusKey', 'sClaudeKey', 'sElevenKey'].some((id) => $(id).value.trim());
+    const newEleven = Boolean($('sElevenKey').value.trim());
+    say($('sMsg'), newKeys ? 'Kaydediliyor, yeni anahtarlar doğrulanıyor…' : 'Kaydediliyor…');
     const voice = voiceList.find((v) => v.id === $('sVoice').value);
     const body = {
       opusApiKey: $('sOpusKey').value, opusOrgId: $('sOpusOrg').value, opusModel: $('sOpusModel').value, opusGenre: $('sOpusGenre').value,
@@ -910,9 +912,10 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     };
     try {
       await api('/api/settings', body);
-      say($('sMsg'), 'Kaydedildi.', 'ok');
+      say($('sMsg'), newKeys ? 'Kaydedildi, anahtarlar çalışıyor.' : 'Kaydedildi.', 'ok');
       await loadSettings(true);
       refresh();
+      if (newEleven) $('loadVoices').click();
     } catch (err) {
       say($('sMsg'), err.message, 'err');
     } finally {

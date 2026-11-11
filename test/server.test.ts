@@ -5,23 +5,33 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { dashboardHtml, startDashboard } from '../src/dashboard/server';
 import { Runtime } from '../src/runtime';
-import { tempDir } from './helpers';
+import { sendJson, serve, tempDir, type Fake } from './helpers';
 
 let rt: Runtime;
 let server: { port: number; close: () => void };
+let claude: Fake;
 
 before(async () => {
   const home = tempDir('srv');
-  rt = new Runtime({ home, assetsDir: join(process.cwd(), 'assets'), tickMs: 3_600_000 });
+  // Answers the model lookup the settings page uses to check a Claude key.
+  claude = await serve((req, res) => {
+    const key = req.headers['x-api-key'] ?? req.headers.authorization?.replace(/^Bearer /, '');
+    if (key !== 'sk-ant-secret-1234') {
+      return sendJson(res, 401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } });
+    }
+    sendJson(res, 200, { type: 'model', id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5', created_at: '2026-10-01T00:00:00Z' });
+  });
+  rt = new Runtime({ home, assetsDir: join(process.cwd(), 'assets'), tickMs: 3_600_000, endpoints: { claude: claude.url } });
   await rt.start();
   server = await startDashboard(rt, { host: '127.0.0.1', port: 0, htmlPath: dashboardHtml(process.cwd()) });
   mkdirSync(join(home, 'media', 'drafts', 'abc'), { recursive: true });
   writeFileSync(join(home, 'media', 'drafts', 'abc', 'final.mp4'), Buffer.from('0123456789'));
 });
 
-after(() => {
+after(async () => {
   server?.close();
   rt?.stop();
+  await claude?.close();
 });
 
 function call(path: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}) {
@@ -59,8 +69,16 @@ test('only this local panel may change anything', async () => {
   assert.match(JSON.parse(bad.body).error, /SS:DD/);
 });
 
-test('secrets never reach the panel', async () => {
-  await post('/api/settings', { anthropicApiKey: 'sk-ant-secret-1234' });
+test('a wrong API key is refused and nothing is saved', async () => {
+  const r = await post('/api/settings', { anthropicApiKey: 'sk-ant-wrong', intervalDays: 5 });
+  assert.equal(r.status, 400);
+  assert.match(JSON.parse(r.body).error, /Claude anahtarı doğrulanamadı, ayarlar kaydedilmedi: Claude API anahtarı geçersiz/);
+  assert.equal(rt.settings.anthropicApiKey, '');
+  assert.notEqual(rt.settings.intervalDays, 5);
+});
+
+test('a working key is saved; secrets never reach the panel', async () => {
+  assert.equal((await post('/api/settings', { anthropicApiKey: 'sk-ant-secret-1234' })).status, 200);
   const s = JSON.parse((await call('/api/settings')).body);
   assert.equal(s.anthropicApiKey, undefined);
   assert.equal(s.anthropicKeyHint, '••••1234');

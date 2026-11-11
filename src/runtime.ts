@@ -9,7 +9,7 @@ import { clipFile, prepareDraft, slotAfterBooked, uploadDraft, type Ctx, type En
 import { applySettingsInput, loadSettings, settingsView, writeSettings, type Settings } from './settings';
 import { newId, Store, type Clip, type Draft, type DraftStatus, type PrepareMode, type Source } from './store';
 import { fitTags, GOOGLE, YouTube, type GoogleEndpoints } from './youtube';
-import { targetWords } from './claude';
+import { ScriptWriter, targetWords } from './claude';
 
 export interface RuntimeOptions {
   home: string;
@@ -301,10 +301,30 @@ export class Runtime {
 
   // ---------- actions from the panel ----------
 
-  saveSettings(body: Record<string, unknown>): void {
-    this.settings = applySettingsInput(this.settings, body);
-    writeSettings(this.paths.settingsFile, this.settings);
-    log.info('Ayarlar kaydedildi');
+  /** Validates new or changed API keys with calls that cost nothing; if one fails, nothing is saved. */
+  async saveSettings(body: Record<string, unknown>): Promise<void> {
+    const next = applySettingsInput(this.settings, body);
+    const cur = this.settings;
+    const checks: Promise<void>[] = [];
+    const verify = (name: string, run: () => Promise<void>) =>
+      checks.push(
+        run().catch((e) => {
+          throw new Error(`${name} doğrulanamadı, ayarlar kaydedilmedi: ${msg(e)}`);
+        }),
+      );
+    if (next.opusApiKey && (next.opusApiKey !== cur.opusApiKey || next.opusOrgId !== cur.opusOrgId)) {
+      verify('OpusClip anahtarı', () => new OpusClient(next.opusApiKey, next.opusOrgId, this.ctx.endpoints.opus).check());
+    }
+    if (next.anthropicApiKey && (next.anthropicApiKey !== cur.anthropicApiKey || next.claudeModel !== cur.claudeModel)) {
+      verify('Claude anahtarı', () => new ScriptWriter(next.anthropicApiKey, next.claudeModel, this.ctx.endpoints.claude).check());
+    }
+    if (next.elevenApiKey && next.elevenApiKey !== cur.elevenApiKey) {
+      verify('ElevenLabs anahtarı', () => new ElevenClient(next.elevenApiKey, this.ctx.endpoints.eleven).check());
+    }
+    await Promise.all(checks);
+    this.settings = next;
+    writeSettings(this.paths.settingsFile, next);
+    log.info(checks.length ? 'Ayarlar kaydedildi, yeni API anahtarları doğrulandı' : 'Ayarlar kaydedildi');
     void this.tick();
   }
 
