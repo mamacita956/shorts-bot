@@ -155,6 +155,11 @@ details.help ol { margin: 8px 0 0; padding-left: 20px; color: var(--text-seconda
 dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
 dl.facts dt { color: var(--text-muted); }
 dl.facts dd { margin: 0; overflow-wrap: anywhere; }
+.review { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
+.review details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); }
+.review h4 { margin: 12px 0 2px; font-size: 12px; font-weight: 650; color: var(--text-muted); }
+.op { border-top: 1px solid var(--grid); padding: 8px 0 2px; display: grid; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
+.op-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .src-list { display: grid; gap: 10px; }
 .src { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
 .src-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -203,9 +208,10 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     <div class="panel">
       <h2>Nasıl çalışır</h2>
       <ol class="steps">
-        <li><b>Kaynaklar</b>’a video bağlantısını ekle. OpusClip videodan klipleri çıkarır ve en yüksek puanlıyı en üste koyar.</li>
+        <li><b>Kaynaklar</b>’a video bağlantısını ekle. OpusClip videodan klipleri çıkarıp puana göre sıralar; en iyi <span id="topN">5</span> tanesi kullanılır.</li>
         <li>Uygulama en iyi kliplerden taslak hazırlar: Claude klibe bakıp seslendirme metnini, başlığı ve etiketleri yazar, ElevenLabs seslendirir, kelime kelime altyazı ve üst başlık eklenir.</li>
-        <li><b>Taslaklar</b>’da videoyu izle, metni düzelt, <b>Onayla</b>. Onaylananlar sırayla <span id="cadence">her 2 günde bir</span> yayınlanır.</li>
+        <li>Üç değerlendirme ajanı (İzleyici, Editör, Kanal yöneticisi) bitmiş videoyu inceleyip tartışır. Onaylarlarsa video sıradaki yayın saatine yerleşir ve YouTube’a yüklenir; reddederlerse metin onların önerileriyle yeniden yazılır, yine olmazsa karar sana kalır. Yayınlar sırayla <span id="cadence">her 2 günde bir</span> çıkar.</li>
+        <li><b>Taslaklar</b>’da ajanların tartışmasını okuyabilir, metni düzeltebilir ya da istediğin videoyu kendin onaylayabilirsin.</li>
       </ol>
     </div>
   </section>
@@ -291,6 +297,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
         <label>Video türü <select id="sOpusGenre"></select></label>
         <label>Video dili <input id="sOpusLang" spellcheck="false" placeholder="auto"></label>
         <label>Marka şablonu ID (isteğe bağlı) <input id="sOpusTemplate" spellcheck="false" placeholder="OpusClip’teki varsayılan şablon kullanılır"></label>
+        <label>Her videodan kullanılacak klip sayısı <input id="sOpusTopN" type="number" min="1" max="50" step="1"></label>
         <div class="wide"><span class="sub">Klip süreleri (saniye)</span><div class="checks" id="sBuckets"></div></div>
         <label class="check wide"><input id="sOpusCaptions" type="checkbox"> OpusClip de kendi altyazısını eklesin (seslendirme altyazısıyla üst üste biner, genelde kapalı kalmalı)</label>
       </div>
@@ -360,10 +367,31 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
         <label>Kaç günde bir <input id="sInterval" type="number" min="1" max="14" step="1"></label>
         <label>Yayın saati <input id="sTime" type="time"></label>
         <label class="check"><input id="sAutoPrepare" type="checkbox"> En iyi kliplerden otomatik taslak hazırla</label>
-        <label>Hazır bekleyen taslak sayısı <input id="sBuffer" type="number" min="1" max="5" step="1"></label>
-        <label class="check wide"><input id="sAutoApprove" type="checkbox"> Sırada onaylı video yoksa en eski hazır taslağı benim yerime onayla</label>
+        <label>İleriye kaç yayın planlansın (ajanlar karar verirken) <input id="sPlanAhead" type="number" min="1" max="15" step="1"></label>
+        <label>Onayını bekleyen taslak sayısı (karar sendeyken) <input id="sBuffer" type="number" min="1" max="5" step="1"></label>
       </div>
       <p class="note">Onaylanan video YouTube’a hemen yüklenir ve gizli bekler; yayın saati gelince YouTube onu herkese açar. O saatte bilgisayarın kapalı olması sorun değil.</p>
+
+      <h2 id="set-review" style="margin-top:24px">Değerlendirme ajanları</h2>
+      <div class="fields">
+        <label>Karar kimde
+          <select id="sReviewMode">
+            <option value="agents">Ajanlar onaylarsa YouTube’a yüklensin</option>
+            <option value="advisory">Ajanlar yorum yapsın, onayı ben vereyim</option>
+            <option value="off">Ajan olmasın, onayı ben vereyim</option>
+          </select></label>
+        <label>Onay için en düşük ortalama puan (1–10) <input id="sReviewMin" type="number" min="1" max="10" step="0.5"></label>
+        <label>Reddedilen videoyu yeniden yazdırma hakkı <input id="sReviewRev" type="number" min="0" max="3" step="1"></label>
+      </div>
+      <p class="note">Üç ajan bitmiş videodan 4 kareyi (altyazı ve başlıkla birlikte) ve metinleri inceler: <b>İzleyici</b> ilk saniyelerin dikkat çekip çekmediğine, <b>Editör</b> doğruluğa ve dile, <b>Kanal yöneticisi</b> kanala uyuma ve YouTube kurallarına bakar. 1. turda her biri bağımsız puan verir, 2. turda diğerlerinin görüşlerine cevap verip son oyunu verir. Çoğunluk onaylar ve ortalama puan eşiği geçerse video yayın sırasına girer. Ajanlar Claude’un seçili modelini kullanır (video başına 6 kısa istek).</p>
+
+      <div id="appSection" hidden>
+        <h2 id="set-app" style="margin-top:24px">Uygulama</h2>
+        <div class="fields">
+          <label class="check wide"><input id="sStartAtLogin" type="checkbox"> Windows açılınca arka planda başlat</label>
+        </div>
+        <p class="note">Pencereyi kapatınca uygulama kapanmaz, saatin yanındaki simgede çalışmaya devam eder; taslak hazırlama, ajan değerlendirmesi ve yüklemeler sürer. Tamamen kapatmak için simgeye sağ tıklayıp <b>Çıkış</b>’ı seç.</p>
+      </div>
 
       <div class="savebar">
         <button class="btn" id="sSave" type="submit">Kaydet</button>
@@ -430,6 +458,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   const DRAFT = {
     queued: ['Sırada', 'warn'],
     preparing: ['Hazırlanıyor', 'warn'],
+    reviewing: ['Ajanlar değerlendiriyor', 'warn'],
     ready: ['Onay bekliyor', 'accent'],
     failed: ['Hata', 'crit'],
     approved: ['Onaylandı · YouTube’a yüklenecek', 'warn'],
@@ -453,6 +482,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     $('draftCount').hidden = !ready; $('draftCount').textContent = ready;
     $('clipCount').hidden = !fresh; $('clipCount').textContent = fresh;
     $('cadence').textContent = `her ${s.schedule.intervalDays} günde bir saat ${s.schedule.publishTime}’da`;
+    $('topN').textContent = s.schedule.opusTopN;
   }
 
   function renderHome(s) {
@@ -525,9 +555,19 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   const cards = new Map();
   function draftMatches(d) {
     if (draftFilter === 'ready') return d.status === 'ready';
-    if (draftFilter === 'work') return ['queued', 'preparing', 'failed'].includes(d.status);
+    if (draftFilter === 'work') return ['queued', 'preparing', 'reviewing', 'failed'].includes(d.status);
     if (draftFilter === 'booked') return BOOKED.includes(d.status);
     return true;
+  }
+  const score = (v) => String(v).replace('.', ',');
+  function reviewBlock(r) {
+    const ok = r.verdict === 'approve';
+    const op = (o) => `<div class="op"><div class="op-head"><b>${esc(o.name)}</b><span class="chip ${o.verdict === 'approve' ? 'good' : 'crit'}">${o.verdict === 'approve' ? 'Onay' : 'Ret'} · ${score(o.score)}/10</span></div>
+      <div>${esc(o.comment)}</div>${o.fix ? `<div class="sub">Öneri: ${esc(o.fix)}</div>` : ''}</div>`;
+    const round = (n) => r.opinions.filter((o) => o.round === n).map(op).join('');
+    return `<div class="review"><div class="draft-head"><span class="chip ${ok ? 'good' : 'crit'}">${ok ? 'Ajanlar onayladı' : 'Ajanlar reddetti'}</span>
+        <span class="sub">${r.approvals}/3 onay · ortalama ${score(r.score)}/10</span></div>
+      <details><summary>Tartışmayı göster</summary><h4>1. tur: bağımsız görüşler</h4>${round(1)}<h4>2. tur: birbirlerine cevaplar ve son oy</h4>${round(2)}</details></div>`;
   }
   function draftCard(d) {
     const [label, cls] = draftLabel(d);
@@ -550,14 +590,16 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
           <button class="btn secondary" type="submit" data-act="save">Kaydet</button>
           <button class="btn secondary" type="button" data-act="rewrite">Claude yeniden yazsın</button>
           <button class="btn secondary" type="button" data-act="revoice">Sesi yenile</button>
+          ${d.status === 'ready' && d.videoSrc ? '<button class="btn secondary" type="button" data-act="review">Ajanlara değerlendirt</button>' : ''}
           <span class="spacer"></span>
           <button class="btn danger" type="button" data-act="reject">Reddet</button>
           ${d.status === 'ready' ? '<button class="btn" type="button" data-act="approve">Onayla ve zamanla</button>' : '<button class="btn" type="button" data-act="retry">Tekrar dene</button>'}
         </div>` : ''}
         <p class="note" data-msg style="margin:0"></p>
       </form>`;
-    } else if (d.status === 'preparing') {
-      body = `<dl class="facts"><dt>Adım</dt><dd>${esc(d.step || '')}</dd>${d.hook ? `<dt>Üst başlık</dt><dd>${esc(d.hook)}</dd>` : ''}${d.narration ? `<dt>Metin</dt><dd>${esc(d.narration)}</dd>` : ''}</dl>`;
+    } else if (d.status === 'preparing' || d.status === 'reviewing') {
+      body = `${d.status === 'reviewing' ? '<p class="note" style="margin:0">Üç ajan videoyu inceleyip tartışıyor; birkaç dakika sürebilir.</p>' : ''}
+        <dl class="facts">${d.step ? `<dt>Adım</dt><dd>${esc(d.step)}</dd>` : ''}${d.hook ? `<dt>Üst başlık</dt><dd>${esc(d.hook)}</dd>` : ''}${d.narration ? `<dt>Metin</dt><dd>${esc(d.narration)}</dd>` : ''}</dl>`;
     } else if (BOOKED.includes(d.status)) {
       const link = d.youtubeId ? `https://www.youtube.com/shorts/${encodeURIComponent(d.youtubeId)}` : '';
       body = `<dl class="facts">
@@ -579,6 +621,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       <div class="draft-body">
         <div class="draft-head"><span class="chip ${cls}">${esc(label)}</span>${d.status === 'preparing' && d.step ? `<span class="sub">${esc(d.step)}</span>` : ''}<span class="spacer"></span><span class="sub">${info}</span></div>
         ${d.error ? `<div class="errbox">${esc(d.error)}</div>` : ''}
+        ${d.review && d.status !== 'reviewing' ? reviewBlock(d.review) : ''}
         ${body}
       </div>`;
     el._d = d;
@@ -600,8 +643,10 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     const changed = f.hook.value.trim() !== d.hook || f.narration.value.trim() !== d.narration;
     const save = f.querySelector('[data-act="save"]');
     if (save) save.textContent = changed ? 'Kaydet ve videoyu yenile' : 'Kaydet';
-    const approve = f.querySelector('[data-act="approve"]');
-    if (approve) { approve.disabled = el._dirty; approve.title = el._dirty ? 'Önce değişiklikleri kaydet' : ''; }
+    for (const act of ['approve', 'review']) {
+      const b = f.querySelector(`[data-act="${act}"]`);
+      if (b) { b.disabled = el._dirty; b.title = el._dirty ? 'Önce değişiklikleri kaydet' : ''; }
+    }
   }
   function renderDrafts(s) {
     const list = s.drafts.filter(draftMatches);
@@ -772,6 +817,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   // ---------- settings ----------
   let options = null;
   let settingsLoaded = false;
+  let desktop = false;
   const fill = (sel, entries, value) => {
     sel.innerHTML = entries.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
     sel.value = value;
@@ -818,7 +864,14 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     $('sTime').value = s.publishTime;
     $('sAutoPrepare').checked = s.autoPrepare;
     $('sBuffer').value = s.draftBuffer;
-    $('sAutoApprove').checked = s.autoApprove;
+    $('sPlanAhead').value = s.planAhead;
+    $('sOpusTopN').value = s.opusTopN;
+    $('sReviewMode').value = s.reviewMode;
+    $('sReviewMin').value = s.reviewMinScore;
+    $('sReviewRev').value = s.reviewRevisions;
+    desktop = s.desktop;
+    $('appSection').hidden = !desktop;
+    $('sStartAtLogin').checked = s.startAtLogin;
     $('dataDir').textContent = `Veriler: ${s.dataDir}`;
     if (S) renderYt(S);
   }
@@ -908,7 +961,9 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       googleClientId: $('sGoogleId').value, googleClientSecret: $('sGoogleSecret').value, categoryId: $('sCategory').value,
       madeForKids: $('sKids').checked, syntheticMedia: $('sSynthetic').checked, descriptionFooter: $('sFooter').value,
       intervalDays: Number($('sInterval').value), publishTime: $('sTime').value, autoPrepare: $('sAutoPrepare').checked,
-      draftBuffer: Number($('sBuffer').value), autoApprove: $('sAutoApprove').checked,
+      draftBuffer: Number($('sBuffer').value), planAhead: Number($('sPlanAhead').value), opusTopN: Number($('sOpusTopN').value),
+      reviewMode: $('sReviewMode').value, reviewMinScore: Number($('sReviewMin').value), reviewRevisions: Number($('sReviewRev').value),
+      ...(desktop ? { startAtLogin: $('sStartAtLogin').checked } : {}),
     };
     try {
       await api('/api/settings', body);
@@ -923,8 +978,10 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     }
   });
 
-  let start = 'home';
-  try { start = localStorage.getItem('tab') || 'home'; } catch {}
+  const fromHash = () => { const t = location.hash.slice(1); return tabs.some((b) => b.dataset.tab === t) ? t : ''; };
+  window.addEventListener('hashchange', () => { if (fromHash()) showTab(fromHash()); });
+  let start = fromHash() || 'home';
+  if (!fromHash()) try { start = localStorage.getItem('tab') || 'home'; } catch {}
   if (!tabs.some((b) => b.dataset.tab === start)) start = 'home';
   refresh().then(() => showTab(start));
   setInterval(refresh, 3000);

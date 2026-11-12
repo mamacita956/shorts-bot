@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { Review } from './review';
 
 export type SourceStage = 'submitting' | 'processing' | 'complete' | 'failed';
 
@@ -43,7 +44,7 @@ export interface Clip {
   createdAt: string;
 }
 
-export type DraftStatus = 'queued' | 'preparing' | 'ready' | 'failed' | 'approved' | 'uploading' | 'scheduled' | 'rejected';
+export type DraftStatus = 'queued' | 'preparing' | 'reviewing' | 'ready' | 'failed' | 'approved' | 'uploading' | 'scheduled' | 'rejected';
 /** full: write, voice, render · rewrite: new script · refresh: re-voice only if the text changed · revoice: always re-voice */
 export type PrepareMode = 'full' | 'rewrite' | 'refresh' | 'revoice';
 
@@ -71,6 +72,10 @@ export interface Draft {
   youtubeId?: string;
   uploadAttempts?: number;
   nextAttemptAt?: string;
+  /** The review panel's latest debate and decision. */
+  review?: Review;
+  /** How many times the panel's feedback has been used to rewrite this short. */
+  revisions?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,11 +1,23 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { outputSeconds } from '../src/ffmpeg';
+import { decide, type Opinion } from '../src/review';
 import { nextSlot } from '../src/schedule';
 import { applySettingsInput, DEFAULTS } from '../src/settings';
 import { assTime, buildAss, chunkWords, wordsFromAlignment } from '../src/subtitles';
 import { cleanText, fitTags } from '../src/youtube';
 import { fakeAlignment } from './helpers';
+
+test('review panel decision: majority approves AND the average reaches the bar', () => {
+  const op = (name: string, score: number, verdict: Opinion['verdict'], fix = ''): Opinion => ({ reviewer: name, name, round: 2, score, verdict, comment: '', fix });
+  assert.equal(decide([op('A', 8, 'approve'), op('B', 7, 'approve'), op('C', 4, 'reject', 'Kısalt')], 7).verdict, 'reject', 'average 6.3 is under 7');
+  assert.equal(decide([op('A', 9, 'approve'), op('B', 8, 'approve'), op('C', 6, 'reject')], 7).verdict, 'approve');
+  assert.equal(decide([op('A', 10, 'approve'), op('B', 9, 'reject'), op('C', 9, 'reject')], 7).verdict, 'reject', 'one yes out of three is not a majority');
+  const r = decide([op('A', 5, 'reject', 'İlk cümleyi değiştir'), op('B', 8, 'approve', 'Başlığı kısalt'), op('C', 4, 'reject')], 7);
+  assert.equal(r.score, 5.7);
+  assert.equal(r.approvals, 1);
+  assert.equal(r.feedback, 'A: İlk cümleyi değiştir\nB: Başlığı kısalt');
+});
 
 test('words come from the character timings, punctuation marks phrase ends', () => {
   const w = wordsFromAlignment(fakeAlignment('Bu gol, “inanılmaz”! İzle.', 0.1));

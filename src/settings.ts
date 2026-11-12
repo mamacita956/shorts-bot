@@ -81,8 +81,21 @@ export interface Settings {
   publishTime: string;
   autoPrepare: boolean;
   draftBuffer: number;
-  autoApprove: boolean;
+  /** Desktop app: start hidden in the tray when Windows starts. */
+  startAtLogin: boolean;
+  /** agents: the review panel decides and approved shorts upload on their own · advisory: the panel comments, the owner decides · off */
+  reviewMode: (typeof REVIEW_MODES)[number];
+  /** Lowest average panel score that can pass. */
+  reviewMinScore: number;
+  /** How many times a turned-down short is rewritten with the panel's feedback before it goes to the owner. */
+  reviewRevisions: number;
+  /** Only OpusClip's best N clips of each source are used. */
+  opusTopN: number;
+  /** In agents mode, how many publish slots are kept filled ahead. */
+  planAhead: number;
 }
+
+export const REVIEW_MODES = ['agents', 'advisory', 'off'] as const;
 
 export const DEFAULT_STYLE =
   'Futbol kanalı. Anlatıcı heyecanlı ama abartısız, samimi bir dille konuşur; kısa ve vurucu cümleler kurar. ' +
@@ -123,7 +136,12 @@ export const DEFAULTS: Settings = {
   publishTime: '19:00',
   autoPrepare: true,
   draftBuffer: 2,
-  autoApprove: false,
+  startAtLogin: true,
+  reviewMode: 'agents',
+  reviewMinScore: 7,
+  reviewRevisions: 1,
+  opusTopN: 5,
+  planAhead: 3,
 };
 
 export function loadSettings(path: string): Settings {
@@ -234,7 +252,12 @@ export function applySettingsInput(current: Settings, body: Record<string, unkno
   }
   if (has('autoPrepare')) s.autoPrepare = body.autoPrepare === true;
   if (has('draftBuffer')) s.draftBuffer = num(body.draftBuffer, 1, 5, 'Hazır taslak sayısı', true);
-  if (has('autoApprove')) s.autoApprove = body.autoApprove === true;
+  if (has('startAtLogin')) s.startAtLogin = body.startAtLogin === true;
+  if (has('reviewMode')) s.reviewMode = oneOf(body.reviewMode, REVIEW_MODES, 'değerlendirme modu');
+  if (has('reviewMinScore')) s.reviewMinScore = num(body.reviewMinScore, 1, 10, 'Onay için en düşük puan');
+  if (has('reviewRevisions')) s.reviewRevisions = num(body.reviewRevisions, 0, 3, 'Yeniden yazma hakkı', true);
+  if (has('opusTopN')) s.opusTopN = num(body.opusTopN, 1, 50, 'Kullanılacak klip sayısı', true);
+  if (has('planAhead')) s.planAhead = num(body.planAhead, 1, 15, 'İleriye planlanacak yayın sayısı', true);
   return s;
 }
 

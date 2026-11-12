@@ -12,6 +12,8 @@ export interface DashboardOptions {
   htmlPath: string;
   /** Opens a folder in the file manager; only the desktop app can. */
   openPath?: (path: string) => void;
+  /** Running inside the desktop app (shows the "start with Windows" setting). */
+  desktop?: boolean;
 }
 
 const TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.jpg': 'image/jpeg' };
@@ -112,6 +114,9 @@ export function startDashboard(rt: Runtime, opts: DashboardOptions): Promise<{ p
         case 'retry-upload':
           rt.retryUpload(id);
           break;
+        case 'review':
+          rt.reviewNow(id);
+          break;
         default:
           throw new Error('Bilinmeyen işlem');
       }
@@ -171,7 +176,7 @@ export function startDashboard(rt: Runtime, opts: DashboardOptions): Promise<{ p
       }
 
       if (url.pathname === '/api/status') return json(res, 200, rt.status());
-      if (url.pathname === '/api/settings') return json(res, 200, rt.settingsView());
+      if (url.pathname === '/api/settings') return json(res, 200, { ...rt.settingsView(), desktop: Boolean(opts.desktop) });
       if (url.pathname === '/api/options') {
         return json(res, 200, {
           opusModels: OPUS_MODELS,

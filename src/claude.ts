@@ -27,7 +27,20 @@ export interface ScriptRequest {
   instructions: string;
   /** When rewriting: the version the user did not want, so the new one differs. */
   previous?: { hook: string; narration: string };
+  /** When rewriting after the review panel turned the short down: the changes it asked for. */
+  feedback?: string;
   frames: Buffer[];
+}
+
+/** Turns SDK errors into short Turkish messages for the panel. */
+export function claudeError(e: unknown, model: string): Error {
+  if (e instanceof Anthropic.AuthenticationError) return new Error('Claude API anahtarı geçersiz');
+  if (e instanceof Anthropic.PermissionDeniedError || e instanceof Anthropic.NotFoundError) return new Error(`Bu Claude API anahtarı ${model} modelini kullanamıyor`);
+  if (e instanceof Anthropic.RateLimitError) return new Error('Claude hız sınırına gelindi; biraz sonra tekrar dene');
+  if (e instanceof Anthropic.BadRequestError) return new Error(`Claude isteği kabul etmedi: ${e.message}`);
+  if (e instanceof Anthropic.APIConnectionError) return new Error('Claude sunucusuna bağlanılamadı');
+  if (e instanceof Anthropic.APIError) return new Error(`Claude hatası ${e.status ?? ''}: ${e.message}`);
+  return e as Error;
 }
 
 function systemPrompt(language: string, seconds: number, words: number): string {
@@ -63,8 +76,9 @@ function details(r: ScriptRequest, words: number): string {
   if (r.instructions) lines.push(`Owner's instructions for this clip: ${r.instructions}`);
   lines.push('', 'What is said in the clip:', r.clip.text ? `"""${r.clip.text}"""` : '(no speech)');
   if (r.previous?.narration) {
-    lines.push('', 'The owner rejected this earlier version; write a clearly different one:', `Headline: ${r.previous.hook}`, `Narration: ${r.previous.narration}`);
+    lines.push('', 'This earlier version was turned down; write a clearly better one:', `Headline: ${r.previous.hook}`, `Narration: ${r.previous.narration}`);
   }
+  if (r.feedback) lines.push('', 'Changes the review panel asked for (follow them):', r.feedback);
   return lines.join('\n');
 }
 
@@ -112,7 +126,7 @@ export class ScriptWriter {
         output_config: { effort: 'medium', format: betaZodOutputFormat(ScriptSchema) },
       });
     } catch (e) {
-      throw this.explain(e);
+      throw claudeError(e, this.model);
     }
     if (msg.stop_reason === 'refusal') throw new Error('Claude bu klip için metin yazmadı (içerik politikası). Klibi atla ya da talimatı değiştir.');
     if (msg.stop_reason === 'max_tokens') throw new Error('Claude cevabı yarıda kesildi; tekrar dene');
@@ -125,17 +139,7 @@ export class ScriptWriter {
     try {
       await this.client.models.retrieve(this.model);
     } catch (e) {
-      throw this.explain(e);
+      throw claudeError(e, this.model);
     }
-  }
-
-  private explain(e: unknown): Error {
-    if (e instanceof Anthropic.AuthenticationError) return new Error('Claude API anahtarı geçersiz');
-    if (e instanceof Anthropic.PermissionDeniedError || e instanceof Anthropic.NotFoundError) return new Error(`Bu Claude API anahtarı ${this.model} modelini kullanamıyor`);
-    if (e instanceof Anthropic.RateLimitError) return new Error('Claude hız sınırına gelindi; biraz sonra tekrar dene');
-    if (e instanceof Anthropic.BadRequestError) return new Error(`Claude isteği kabul etmedi: ${e.message}`);
-    if (e instanceof Anthropic.APIConnectionError) return new Error('Claude sunucusuna bağlanılamadı');
-    if (e instanceof Anthropic.APIError) return new Error(`Claude hatası ${e.status ?? ''}: ${e.message}`);
-    return e as Error;
   }
 }

@@ -71,9 +71,19 @@ export const SCRIPT = {
   tags: ['futbol', 'gol', 'süper lig', '#derbi'],
 };
 
+export interface Opinion {
+  score: number;
+  verdict: 'approve' | 'reject';
+  comment: string;
+  fix: string;
+}
+
 export interface Recorded {
   opusCreate: Record<string, unknown>[];
+  /** Script-writing requests. */
   claude: Record<string, unknown>[];
+  /** Review-panel requests (their output schema asks for a verdict). */
+  reviews: Record<string, unknown>[];
   claudeHeaders: IncomingMessage['headers'][];
   eleven: Record<string, unknown>[];
   uploadInit: Record<string, unknown>[];
@@ -86,7 +96,9 @@ export interface Recorded {
 export async function startFakes(dir: string, clipSeconds = 6) {
   const clip = join(dir, 'source-clip.mp4');
   await makeClip(clip, clipSeconds);
-  const rec: Recorded = { opusCreate: [], claude: [], claudeHeaders: [], eleven: [], uploadInit: [], uploadHeaders: [], uploaded: [], tokenRequests: [] };
+  const rec: Recorded = { opusCreate: [], claude: [], reviews: [], claudeHeaders: [], eleven: [], uploadInit: [], uploadHeaders: [], uploaded: [], tokenRequests: [] };
+  // What each reviewer answers; the test can swap it. The argument counts review requests so far (0-based).
+  const panel = { opinion: (_n: number): Opinion => ({ score: 8, verdict: 'approve', comment: 'İyi bir video.', fix: '' }) };
   let projectChecks = 0;
   let toneN = 0;
 
@@ -134,11 +146,19 @@ export async function startFakes(dir: string, clipSeconds = 6) {
 
   const claude: Fake = await serve((req, res, body) => {
     if (req.method !== 'POST' || !req.url?.startsWith('/v1/messages')) return sendJson(res, 404, { type: 'error', error: { type: 'not_found_error', message: 'nope' } });
-    rec.claude.push(JSON.parse(body.toString()));
+    const b = JSON.parse(body.toString());
     rec.claudeHeaders.push(req.headers);
+    const isReview = Boolean(b.output_config?.format?.schema?.properties?.verdict);
+    let answer: unknown = SCRIPT;
+    if (isReview) {
+      answer = panel.opinion(rec.reviews.length);
+      rec.reviews.push(b);
+    } else {
+      rec.claude.push(b);
+    }
     sendJson(res, 200, {
       id: 'msg_test', type: 'message', role: 'assistant', model: 'claude-opus-5-5',
-      content: [{ type: 'text', text: JSON.stringify(SCRIPT) }],
+      content: [{ type: 'text', text: JSON.stringify(answer) }],
       stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 100, output_tokens: 50 },
     });
   });
@@ -183,6 +203,7 @@ export async function startFakes(dir: string, clipSeconds = 6) {
 
   return {
     rec,
+    panel,
     clip,
     endpoints: { opus: opus.url, eleven: eleven.url, claude: claude.url },
     google: { auth: `${google.url}/auth`, token: `${google.url}/token`, api: `${google.url}/youtube/v3`, upload: `${google.url}/upload/youtube/v3` },

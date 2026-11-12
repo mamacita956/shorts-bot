@@ -24,6 +24,8 @@ before(async () => {
     googleClientId: '123-abc.apps.googleusercontent.com',
     autoPrepare: false,
     musicVolume: 0,
+    // This test covers the owner-approves flow; test/agents.test.ts covers the review panel.
+    reviewMode: 'off',
   });
   rt = new Runtime({
     home,

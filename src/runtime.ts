@@ -5,7 +5,7 @@ import { runFfmpeg } from './ffmpeg';
 import { log } from './log';
 import { OPUS_STAGE_NAMES, OpusBusyError, OpusClient, type OpusClipItem } from './opus';
 import { pathsFor, safeName, type Paths } from './paths';
-import { clipFile, prepareDraft, slotAfterBooked, uploadDraft, type Ctx, type Endpoints } from './pipeline';
+import { clipFile, prepareDraft, reviewDraft, slotAfterBooked, uploadDraft, type Ctx, type Endpoints } from './pipeline';
 import { applySettingsInput, loadSettings, settingsView, writeSettings, type Settings } from './settings';
 import { newId, Store, type Clip, type Draft, type DraftStatus, type PrepareMode, type Source } from './store';
 import { fitTags, GOOGLE, YouTube, type GoogleEndpoints } from './youtube';
@@ -20,10 +20,16 @@ export interface RuntimeOptions {
   tickMs?: number;
   opusPollMs?: number;
   uploadRetryDelayMs?: number;
+  /** Shows a desktop notification (desktop app only). */
+  notify?: (title: string, body: string) => void;
+  /** Called after settings were saved, e.g. to apply "start with Windows". */
+  onSettingsSaved?: (s: Settings) => void;
 }
 
 /** Drafts that count toward the "ready drafts" buffer. Failed ones count too, so a broken key cannot burn through every clip. */
-const IN_BUFFER: DraftStatus[] = ['queued', 'preparing', 'ready', 'failed'];
+const IN_BUFFER: DraftStatus[] = ['queued', 'preparing', 'reviewing', 'ready', 'failed'];
+/** In agents mode, drafts still on their way to a decision. Ready ones wait for the owner and do not hold up the next clip. */
+const IN_PIPELINE: DraftStatus[] = ['queued', 'preparing', 'reviewing', 'failed'];
 const BOOKED: DraftStatus[] = ['approved', 'uploading', 'scheduled'];
 const EDITABLE: DraftStatus[] = ['ready', 'failed'];
 
@@ -95,7 +101,10 @@ export class Runtime {
       if (d.status === 'uploading') d.status = 'approved';
     }
     this.store.save();
-    for (const d of this.store.data.drafts) if (d.status === 'queued') this.enqueuePrepare(d);
+    for (const d of this.store.data.drafts) {
+      if (d.status === 'queued') this.enqueuePrepare(d);
+      if (d.status === 'reviewing') this.enqueueReview(d);
+    }
     this.timer = setInterval(() => void this.tick(), this.o.tickMs ?? 60_000);
     void this.tick();
   }
@@ -135,17 +144,78 @@ export class Runtime {
     }
   }
 
+  private notify(title: string, body: string) {
+    try {
+      this.o.notify?.(title, body);
+    } catch {
+      // A notification that cannot be shown must not stop the work.
+    }
+  }
+
   private enqueuePrepare(d: Draft) {
     this.enqueue(`prepare:${d.id}`, `Taslak hazırlanıyor: ${d.title || d.id}`, async () => {
       if (d.status !== 'queued') return;
       try {
         await prepareDraft(this.ctx, d);
-        log.ok(`Taslak hazır, onayını bekliyor: ${d.title}`);
       } catch (e) {
         this.store.updateDraft(d, { status: 'failed', step: undefined, error: msg(e) });
         log.error(`Taslak hazırlanamadı (${d.title || d.id}): ${msg(e)}`);
+        this.notify('Taslak hazırlanamadı', `${d.title || 'Taslak'}: ${msg(e)}`);
+        return;
       }
+      if (this.settings.reviewMode === 'off') {
+        log.ok(`Taslak hazır, onayını bekliyor: ${d.title}`);
+        this.notify('Taslak onay bekliyor', d.title);
+        return;
+      }
+      this.store.updateDraft(d, { status: 'reviewing' });
+      this.enqueueReview(d);
     });
+  }
+
+  private enqueueReview(d: Draft) {
+    this.enqueue(`review:${d.id}`, `Ajanlar değerlendiriyor: ${d.title}`, async () => {
+      if (d.status !== 'reviewing') return;
+      let review;
+      try {
+        review = await reviewDraft(this.ctx, d);
+      } catch (e) {
+        // Without a verdict nothing goes out on its own; the owner decides.
+        this.store.updateDraft(d, { status: 'ready', error: `Ajanlar değerlendiremedi: ${msg(e)}` });
+        log.error(`Ajan değerlendirmesi yapılamadı (${d.title}): ${msg(e)}`);
+        this.notify('Taslak onay bekliyor', `Ajanlar değerlendiremedi: ${d.title}`);
+        return;
+      }
+      this.store.updateDraft(d, { review, status: 'ready', error: undefined });
+      this.afterReview(d);
+    });
+  }
+
+  /** Acts on the panel's verdict: publish, rewrite with its feedback, or hand over to the owner. */
+  private afterReview(d: Draft) {
+    const r = d.review;
+    if (!r) return;
+    const tally = `${r.approvals}/3 onay, ortalama ${r.score}/10`;
+    const agents = this.settings.reviewMode === 'agents';
+    if (r.verdict === 'approve') {
+      if (agents && this.youtube.status().connected) {
+        const slot = this.approveDraft(d.id);
+        log.ok(`Ajanlar onayladı (${tally}), ${when(slot)} yayınlanacak: ${d.title}`);
+        this.notify('Ajanlar onayladı', `${d.title} · ${when(slot)} yayınlanacak`);
+      } else {
+        log.ok(`Ajanlar onayladı (${tally}), onayını bekliyor: ${d.title}`);
+        this.notify('Taslak onay bekliyor', `Ajanlar onayladı: ${d.title}`);
+      }
+      return;
+    }
+    if (agents && (d.revisions ?? 0) < this.settings.reviewRevisions) {
+      log.info(`Ajanlar reddetti (${tally}); metin onların geri bildirimiyle yeniden yazılıyor: ${d.title}`);
+      this.store.updateDraft(d, { revisions: (d.revisions ?? 0) + 1 });
+      this.requeue(d, 'rewrite');
+      return;
+    }
+    log.warn(`Ajanlar reddetti (${tally}); karar senin: ${d.title}`);
+    this.notify('Ajanlar reddetti', `${d.title} · karar senin`);
   }
 
   private enqueueUpload(d: Draft) {
@@ -164,6 +234,7 @@ export class Runtime {
           nextAttemptAt: new Date(Date.now() + waitMin * 60_000).toISOString(),
         });
         log.error(`YouTube yüklemesi başarısız (${d.title}), ${waitMin} dk sonra tekrar denenecek: ${msg(e)}`);
+        this.notify('YouTube yüklemesi başarısız', `${d.title}: ${msg(e)}`);
       }
     });
   }
@@ -192,7 +263,6 @@ export class Runtime {
       log.error(`OpusClip kontrolü: ${msg(e)}`);
     }
     this.autoPrepare();
-    this.autoApprove();
     for (const d of this.store.data.drafts) if (d.status === 'approved' && due(d.nextAttemptAt)) this.enqueueUpload(d);
   }
 
@@ -241,8 +311,10 @@ export class Runtime {
     }
   }
 
+  /** Keeps OpusClip's order; clips beyond the best N are kept but set aside, so they can still be used by hand. */
   private addClips(src: Source, items: OpusClipItem[]) {
     const now = iso();
+    const topN = this.settings.opusTopN;
     items.forEach((it, i) => {
       if (this.store.data.clips.some((c) => c.key === it.id)) return;
       this.store.data.clips.push({
@@ -259,7 +331,7 @@ export class Runtime {
         keywords: it.keywords ?? [],
         previewUrl: it.uriForPreview ?? '',
         exportUrl: it.uriForExport ?? '',
-        status: 'new',
+        status: i < topN ? 'new' : 'skipped',
         createdAt: now,
       });
     });
@@ -278,25 +350,27 @@ export class Runtime {
     return Boolean(s.anthropicApiKey && s.elevenApiKey && s.voiceId && !this.ffmpegError);
   }
 
+  /**
+   * With the review panel deciding, enough clips are prepared to keep `planAhead` publish slots filled.
+   * Otherwise (or until YouTube is connected) it keeps `draftBuffer` drafts waiting for the owner.
+   */
   private autoPrepare() {
     if (!this.settings.autoPrepare || !this.canPrepare()) return;
-    let need = this.settings.draftBuffer - this.store.data.drafts.filter((d) => IN_BUFFER.includes(d.status)).length;
+    const drafts = this.store.data.drafts;
+    let need: number;
+    if (this.settings.reviewMode === 'agents' && this.youtube.status().connected) {
+      const now = Date.now();
+      const ahead = drafts.filter((d) => BOOKED.includes(d.status) && d.slot && Date.parse(d.slot) > now).length;
+      need = this.settings.planAhead - ahead - drafts.filter((d) => IN_PIPELINE.includes(d.status)).length;
+    } else {
+      need = this.settings.draftBuffer - drafts.filter((d) => IN_BUFFER.includes(d.status)).length;
+    }
     for (; need > 0; need--) {
       const clip = this.bestClip();
       if (!clip) return;
       this.draftClip(clip.key);
       log.info(`Otomatik taslak başlatıldı (OpusClip sırası #${clip.rank}): ${clip.title}`);
     }
-  }
-
-  private autoApprove() {
-    if (!this.settings.autoApprove || !this.youtube.status().connected) return;
-    const now = Date.now();
-    if (this.store.data.drafts.some((d) => BOOKED.includes(d.status) && d.slot && Date.parse(d.slot) > now)) return;
-    const ready = this.store.data.drafts.filter((d) => d.status === 'ready').sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-    if (!ready) return;
-    const slot = this.approveDraft(ready.id);
-    log.info(`Otomatik onaylandı, ${when(slot)} yayınlanacak: ${ready.title}`);
   }
 
   // ---------- actions from the panel ----------
@@ -325,6 +399,7 @@ export class Runtime {
     this.settings = next;
     writeSettings(this.paths.settingsFile, next);
     log.info(checks.length ? 'Ayarlar kaydedildi, yeni API anahtarları doğrulandı' : 'Ayarlar kaydedildi');
+    this.o.onSettingsSaved?.(next);
     void this.tick();
   }
 
@@ -489,6 +564,14 @@ export class Runtime {
     void this.tick();
   }
 
+  /** Asks the review panel again, e.g. after the owner edited a short; in agents mode an approval publishes it. */
+  reviewNow(id: string): void {
+    const d = this.store.draft(id);
+    if (d.status !== 'ready' || !d.hasVideo) throw new Error('Sadece videosu hazır taslaklar değerlendirilebilir');
+    this.store.updateDraft(d, { status: 'reviewing', error: undefined });
+    this.enqueueReview(d);
+  }
+
   // ---------- panel view ----------
 
   setupIssues(): SetupIssue[] {
@@ -524,7 +607,16 @@ export class Runtime {
       youtube: this.youtube.status(),
       setup: this.setupIssues(),
       nextSlot: slotAfterBooked(this.ctx).toISOString(),
-      schedule: { intervalDays: s.intervalDays, publishTime: s.publishTime, autoPrepare: s.autoPrepare, autoApprove: s.autoApprove, draftBuffer: s.draftBuffer },
+      schedule: {
+        intervalDays: s.intervalDays,
+        publishTime: s.publishTime,
+        autoPrepare: s.autoPrepare,
+        draftBuffer: s.draftBuffer,
+        reviewMode: s.reviewMode,
+        reviewMinScore: s.reviewMinScore,
+        planAhead: s.planAhead,
+        opusTopN: s.opusTopN,
+      },
       sources: [...this.store.data.sources].reverse().map((x) => ({ ...x, stageName: x.opusStage ? OPUS_STAGE_NAMES[x.opusStage] ?? x.opusStage : '' })),
       clips: this.store.data.clips
         .map(clipView)

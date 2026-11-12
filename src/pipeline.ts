@@ -8,6 +8,7 @@ import { download } from './http';
 import { log } from './log';
 import { OpusClient } from './opus';
 import { safeName, type Paths } from './paths';
+import { ReviewPanel, type Review } from './review';
 import { nextSlot } from './schedule';
 import type { Settings } from './settings';
 import type { Clip, Draft, Store } from './store';
@@ -97,6 +98,7 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
       sourceNote: source?.note ?? '',
       instructions: d.instructions,
       previous: d.mode === 'rewrite' && d.narration ? { hook: d.hook, narration: d.narration } : undefined,
+      feedback: d.mode === 'rewrite' && d.review?.verdict === 'reject' ? d.review.feedback : undefined,
       frames: await Promise.all(frames.map((f) => readFile(f))),
     });
     ctx.store.updateDraft(d, script);
@@ -165,6 +167,28 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
     clipSeconds: info.duration,
     voiceSeconds,
     videoSeconds: out.duration,
+  });
+}
+
+/** The review panel looks at the finished video as viewers will see it: stills with the headline and captions burned in. */
+export async function reviewDraft(ctx: Ctx, d: Draft): Promise<Review> {
+  const s = ctx.settings();
+  if (!s.anthropicApiKey) throw new Error('Claude API anahtarı yok (Ayarlar → Claude)');
+  const dir = draftDir(ctx, d);
+  const video = join(dir, 'final.mp4');
+  const info = await probe(video);
+  const frames = await extractFrames(video, join(dir, 'review'), 4, info.duration);
+  const clip = ctx.store.clip(d.clipKey);
+  const source = ctx.store.data.sources.find((x) => x.id === clip.sourceId);
+  return new ReviewPanel(s.anthropicApiKey, s.claudeModel, ctx.endpoints.claude).review({
+    language: s.language,
+    style: s.channelStyle,
+    frames: await Promise.all(frames.map((f) => readFile(f))),
+    draft: { hook: d.hook, narration: d.narration, title: d.title, description: d.description, tags: d.tags },
+    clip: { rank: clip.rank, seconds: clip.durationMs / 1000, text: clip.text },
+    videoSeconds: info.duration,
+    sourceNote: source?.note ?? '',
+    minScore: s.reviewMinScore,
   });
 }
 

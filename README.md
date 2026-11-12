@@ -3,13 +3,27 @@
 Uzun videolardan OpusClip’in en yüksek puan verdiği klipleri alır, her klibi kendi anlatımınla özgünleştirir ve YouTube Shorts kanalına düzenli aralıklarla (varsayılan: 2 günde bir, 19:00) yayınlar.
 
 Bir klip şöyle hazırlanır:
-1. **OpusClip** videodan klipleri çıkarır, dikey (9:16) hale getirir ve puana göre sıralar.
+1. **OpusClip** videodan klipleri çıkarır, dikey (9:16) hale getirir ve puana göre sıralar. Her videonun en iyi 5 klibi kullanılır (Ayarlar’dan değişir).
 2. **Claude** klipten 4 kare görür, klibin konuşmasını ve senin notunu okur. Seslendirme metnini, videonun üstündeki başlığı, YouTube başlığını, açıklamayı ve etiketleri yazar.
 3. **ElevenLabs** metni seçtiğin sesle seslendirir.
 4. Uygulama **ffmpeg** ile videoyu birleştirir: seslendirme öne çıkar, klibin kendi sesi kısılır (varsayılan %25), istersen müzik eklenir. Seslendirmeye kelime kelime eşlenen altyazı ve üstte başlık kutusu basılır.
-5. Sen videoyu izleyip onaylarsın. Video **YouTube**’a hemen yüklenir ve gizli bekler; yayın saati gelince YouTube onu herkese açar. O saatte bilgisayarın kapalı olması sorun değil.
+5. Üç **değerlendirme ajanı** bitmiş videoyu inceleyip tartışır (aşağıda). Onaylarlarsa video **YouTube**’a hemen yüklenir ve gizli bekler; yayın saati gelince YouTube onu herkese açar. O saatte bilgisayarın kapalı olması sorun değil.
 
-Hiçbir video sen onaylamadan yüklenmez. Ayarlar’daki “otomatik onay” seçeneğini açarsan, sırada onaylı video yoksa en eski hazır taslağı senin yerine onaylar.
+## Değerlendirme ajanları
+
+Her video yayına girmeden önce üç ajandan oluşan bir kuruldan geçer. Ajanlar bitmiş videodan 4 kareyi (altyazı ve üst başlıkla birlikte), seslendirme metnini, YouTube başlığını, açıklamayı, etiketleri ve klibin orijinal konuşmasını görür:
+
+| Ajan | Neye bakar |
+|---|---|
+| **İzleyici** | Üst başlık ve ilk cümle ilk iki saniyede kaydırmayı durduruyor mu, tempo iyi mi, sonuna kadar izlenir mi? |
+| **Editör** | Anlatım ekrandakiyle uyuşuyor mu, desteklenmeyen isim, skor ya da iddia var mı, dil ve yazım doğru mu, altyazı okunuyor mu? |
+| **Kanal yöneticisi** | Kanalın tarzına uyuyor mu, anlatım gerçekten yorum katıyor mu (YouTube’un tekrar kullanılan içerik kuralları), başlık abartılı mı, kanala zarar verecek bir şey var mı? |
+
+1. turda her ajan bağımsız olarak 1-10 arası puan ve onay ya da ret verir. 2. turda diğer ikisinin görüşlerini okur, onlara cevap verir ve son oyunu verir. Ajanların çoğunluğu onaylar **ve** ortalama puan eşiği (varsayılan 7) geçerse video yayın sırasına girer ve kendiliğinden YouTube’a yüklenir.
+
+Reddederlerse metin, ajanların önerileriyle Claude’a bir kez daha yazdırılır, video yeniden oluşturulur ve tekrar değerlendirilir. Yine reddederlerse video Taslaklar’da senin kararını bekler; tartışmanın tamamını orada okuyabilirsin.
+
+Ayarlar → Değerlendirme ajanları’ndan karar yetkisini değiştirebilirsin: ajanlar karar versin (varsayılan), ajanlar sadece yorum yapsın ve onayı sen ver, ya da ajan olmasın. Ajanlar Claude’un seçili modelini kullanır; video başına 6 kısa istek gider.
 
 ## Windows’a kurulum
 
@@ -18,6 +32,8 @@ Hiçbir video sen onaylamadan yüklenmez. Ayarlar’daki “otomatik onay” se�
 3. Kurulum bitince masaüstündeki **Shorts Bot** kısayoluyla aç.
 
 ffmpeg ve altyazı fontu kurulum dosyasının içinde gelir. Ayrıca bir şey kurman gerekmez.
+
+Uygulama **Windows açılınca arka planda kendiliğinden başlar** ve saatin yanındaki simgede çalışır. Pencereyi kapatmak uygulamayı kapatmaz; tamamen kapatmak için simgeye sağ tıklayıp **Çıkış**’ı seç. Bir taslak onayını beklediğinde, ajanlar bir videoyu onaylayıp zamanladığında ya da bir yükleme hata verdiğinde Windows bildirimi gelir; bildirime tıklayınca Taslaklar açılır. Açılışta başlamayı Ayarlar → Uygulama’dan ya da simgenin menüsünden kapatabilirsin.
 
 ## İlk ayarlar (Ayarlar sekmesi)
 
@@ -49,11 +65,12 @@ Google, doğrulanmamış projelerden yüklenen videoları eskiden “gizli”ye 
   - Metni ya da üst başlığı değiştirip **Kaydet**’e basarsan seslendirme ve video yeniden oluşur.
   - **Claude yeniden yazsın:** “Claude’a not” alanındaki yönlendirmeyle yeni bir versiyon yazar (“daha esprili olsun”, “oyuncunun adı Icardi” gibi).
   - **Sesi yenile:** Aynı metni, Ayarlar’da seçili sesle yeniden seslendirir.
-  - **Onayla ve zamanla:** Video sıradaki boş yayın saatine yerleşir ve YouTube’a yüklenir.
+  - **Ajanlara değerlendirt:** Düzenlediğin videoyu kurula tekrar sorar.
+  - **Onayla ve zamanla:** Ajanlar ne derse desin video sıradaki boş yayın saatine yerleşir ve YouTube’a yüklenir.
 - **Takvim:** Zamanlanan ve yayınlanan videolar, YouTube bağlantılarıyla.
-- **Otomatik taslak (varsayılan açık):** Uygulama, onay bekleyen taslak sayısını ayardaki değerde (varsayılan 2) tutar. Önce her videonun 1 numaralı klibini, sonra 2 numaralılarını kullanır.
+- **Otomatik taslak (varsayılan açık):** Ajanlar karar verirken uygulama ileriye 3 yayın saatini dolu tutacak kadar klip hazırlar; karar sendeyken onayını bekleyen 2 taslak tutar. Önce her videonun 1 numaralı klibini, sonra 2 numaralılarını kullanır.
 
-Ayarlar ve videolar `%APPDATA%\Shorts Bot` klasöründe tutulur. Uygulama açıkken her dakika OpusClip’i kontrol eder, taslak hazırlar ve onaylanan videoları yükler. YouTube’a yüklenmiş videolar uygulama kapalıyken de saatinde yayınlanır.
+Ayarlar ve videolar `%APPDATA%\Shorts Bot` klasöründe tutulur. Uygulama çalışırken her dakika OpusClip’i kontrol eder, taslak hazırlar, ajanlara değerlendirtir ve onaylanan videoları yükler. YouTube’a yüklenmiş videolar uygulama kapalıyken de saatinde yayınlanır.
 
 ### Müzik
 
@@ -69,7 +86,7 @@ Gerçek bir kişinin sesini taklit eden bir ElevenLabs sesi kullanıyorsan Ayarl
 
 - **OpusClip:** 1 kredi = 1 dakika kaynak video. API ile açılan her proje en az 10 kredi. Pro/Max planlarında API ile ayda en fazla 900 kredi (15 saat) işlenebilir.
 - **ElevenLabs:** Karakter başına. 45 saniyelik bir Short yaklaşık 600-800 karakter.
-- **Claude:** Taslak başına birkaç sent (4 küçük görüntü ve kısa bir metin).
+- **Claude:** Taslak başına birkaç sent (4 küçük görüntü ve kısa bir metin); ajan kurulu video başına 6 kısa istek daha yapar, yaklaşık 10-15 sent.
 - **YouTube:** Ücretsiz.
 
 ## İlk gerçek denemede kontrol edilecekler
@@ -102,7 +119,8 @@ src/
   desktop/main.ts      masaüstü uygulaması (Electron)
   dashboard/           panel arayüzü ve yerel sunucu
   runtime.ts           her dakikalık döngü, iş kuyruğu, otomatik taslak ve onay
-  pipeline.ts          taslak hazırlama (indir → Claude → ElevenLabs → altyazı → video) ve yükleme
+  pipeline.ts          taslak hazırlama (indir → Claude → ElevenLabs → altyazı → video), ajan değerlendirmesi ve yükleme
+  review.ts            değerlendirme ajanları (iki turlu tartışma ve karar)
   opus.ts              OpusClip API istemcisi
   claude.ts            seslendirme metni (Claude API)
   eleven.ts            ElevenLabs API istemcisi
