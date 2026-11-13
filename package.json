@@ -1,7 +1,7 @@
 {
   "name": "shorts-bot",
   "productName": "Shorts Bot",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "OpusClip kliplerini seslendirme ve altyazıyla özgünleştirip YouTube Shorts'a zamanlayan masaüstü uygulaması",

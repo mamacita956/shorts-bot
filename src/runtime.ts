@@ -1,12 +1,25 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ElevenClient, type Voice } from './eleven';
 import { runFfmpeg } from './ffmpeg';
 import { log } from './log';
 import { OPUS_STAGE_NAMES, OpusBusyError, OpusClient, type OpusClipItem } from './opus';
 import { pathsFor, safeName, type Paths } from './paths';
 import { LessonWriter, type Insights } from './insights';
-import { clipFile, prepareDraft, renderCoverFor, results, reviewDraft, setThumbnailFor, slotAfterBooked, uploadDraft, type Ctx, type Endpoints } from './pipeline';
+import {
+  analyseSource,
+  clipFile,
+  prepareDraft,
+  renderCoverFor,
+  results,
+  reviewDraft,
+  setThumbnailFor,
+  slotAfterBooked,
+  uploadDraft,
+  type Ctx,
+  type Endpoints,
+} from './pipeline';
 import { applySettingsInput, loadSettings, settingsView, writeSettings, type Settings } from './settings';
 import { newId, Store, type Clip, type Draft, type DraftStatus, type PrepareMode, type Source } from './store';
 import { fitTags, GOOGLE, ThumbnailForbiddenError, YouTube, type GoogleEndpoints } from './youtube';
@@ -48,6 +61,11 @@ const REJECTION: Record<string, string> = {
   legal: 'yasal sebep',
   length: 'video uzunluğu',
 };
+
+/** Video files the clip agent accepts. */
+const VIDEO_EXT = new Set(['.mp4', '.m4v', '.mov', '.mkv', '.avi', '.webm', '.ts', '.mts', '.m2ts', '.wmv', '.flv', '.mpg', '.mpeg']);
+/** A path on this computer rather than a web link (C:\..., \\server\share, /home/..., file://...). */
+const isLocalPath = (s: string) => /^[a-zA-Z]:[\\/]/.test(s) || s.startsWith('\\\\') || s.startsWith('/') || s.startsWith('file://');
 
 const iso = () => new Date().toISOString();
 const later = (ms: number) => new Date(Date.now() + ms).toISOString();
@@ -116,6 +134,9 @@ export class Runtime {
     for (const d of this.store.data.drafts) {
       if (d.status === 'preparing') d.status = 'queued';
       if (d.status === 'uploading') d.status = 'approved';
+    }
+    for (const src of this.store.data.sources) {
+      if (src.kind === 'file' && src.stage === 'processing') Object.assign(src, { stage: 'submitting', step: undefined });
     }
     this.store.save();
     for (const d of this.store.data.drafts) {
@@ -279,6 +300,7 @@ export class Runtime {
     } catch (e) {
       log.error(`OpusClip kontrolü: ${msg(e)}`);
     }
+    for (const src of this.store.data.sources) if (src.kind === 'file' && src.stage === 'submitting') this.enqueueAnalyse(src);
     this.autoPrepare();
     for (const d of this.store.data.drafts) if (d.status === 'approved' && due(d.nextAttemptAt)) this.enqueueUpload(d);
     if (!this.youtube.status().connected) return;
@@ -296,6 +318,39 @@ export class Runtime {
         log.warn(`YouTube sonuçları ya da kanal dersleri güncellenemedi: ${msg(e)}`);
       }
     }
+  }
+
+  /** Claude watches a video file and picks the clips; this takes a few minutes for a full match. */
+  private enqueueAnalyse(src: Source) {
+    const name = basename(src.file ?? src.url);
+    this.enqueue(`analyse:${src.id}`, `Claude videoyu izliyor: ${name}`, async () => {
+      if (src.stage !== 'submitting' || !this.store.data.sources.includes(src)) return;
+      Object.assign(src, { stage: 'processing', error: undefined, step: 'Başlıyor' });
+      this.store.save();
+      const started = Date.now();
+      try {
+        const clips = await analyseSource(this.ctx, src, (text) => {
+          src.step = text;
+          this.store.save();
+          log.info(`${name}: ${text}`);
+        });
+        if (!this.store.data.sources.includes(src)) return; // removed while Claude was watching
+        const topN = this.settings.opusTopN;
+        for (const c of clips) {
+          if (!this.store.data.clips.some((x) => x.key === c.key)) this.store.data.clips.push({ ...c, status: c.rank <= topN ? 'new' : 'skipped' });
+        }
+        Object.assign(src, { stage: 'complete', step: undefined, clipCount: clips.length });
+        this.store.save();
+        log.ok(`Claude ${clips.length} klip seçti (${Math.max(1, Math.round((Date.now() - started) / 60_000))} dk): ${name}`);
+        this.notify('Klipler hazır', `Claude ${name} videosundan ${clips.length} klip seçti`);
+        void this.tick();
+      } catch (e) {
+        Object.assign(src, { stage: 'failed', step: undefined, error: msg(e) });
+        this.store.save();
+        log.error(`Video incelenemedi (${name}): ${msg(e)}`);
+        this.notify('Video incelenemedi', `${name}: ${msg(e)}`);
+      }
+    });
   }
 
   /** The cover can only be set once YouTube has finished processing the video, so this waits and retries. */
@@ -382,7 +437,7 @@ export class Runtime {
     const pollMs = this.o.opusPollMs ?? 60_000;
     const later = (ms: number) => new Date(Date.now() + ms).toISOString();
     for (const src of this.store.data.sources) {
-      if (!due(src.nextCheckAt)) continue;
+      if (src.kind === 'file' || !due(src.nextCheckAt)) continue;
       if (src.stage === 'submitting') {
         try {
           const p = await this.opus().createProject(src.url, this.settings, src.prompt);
@@ -519,9 +574,13 @@ export class Runtime {
     return new ElevenClient(this.settings.elevenApiKey, this.ctx.endpoints.eleven).voices();
   }
 
+  /** A web link goes to OpusClip; a video file on this computer goes to the clip agent. */
   addSource(url: string, note: string, prompt: string): Source {
-    if (!this.settings.opusApiKey) throw new Error('Önce Ayarlar → OpusClip bölümüne API anahtarını gir');
-    const clean = url.trim();
+    const clean = url.trim().replace(/^"(.*)"$/, '$1');
+    if (isLocalPath(clean)) return this.addFileSource(clean.startsWith('file://') ? fileURLToPath(clean) : clean, note);
+    if (!this.settings.opusApiKey) {
+      throw new Error('Linkle eklenen videoları OpusClip işler: önce Ayarlar → OpusClip bölümüne API anahtarını gir. Ya da bilgisayarındaki video dosyasını seç, onu Claude izlesin.');
+    }
     let parsed: URL;
     try {
       parsed = new URL(clean);
@@ -545,6 +604,37 @@ export class Runtime {
     return src;
   }
 
+  private addFileSource(path: string, note: string): Source {
+    const s = this.settings;
+    if (!s.anthropicApiKey) throw new Error('Önce Ayarlar → Claude bölümüne API anahtarını gir; videoyu Claude izleyecek');
+    if (!s.elevenApiKey) throw new Error('Önce Ayarlar → ElevenLabs bölümüne API anahtarını gir; videodaki konuşmalar onunla yazıya dökülüyor');
+    let st;
+    try {
+      st = statSync(path);
+    } catch {
+      throw new Error(`Dosya bulunamadı: ${path}`);
+    }
+    if (!st.isFile()) throw new Error('Bu bir dosya değil; bir video dosyası seç');
+    if (!VIDEO_EXT.has(extname(path).toLowerCase())) throw new Error('Bir video dosyası seç (mp4, mkv, mov, avi, webm, ts…)');
+    if (this.store.data.sources.some((x) => x.file === path && x.stage !== 'failed')) throw new Error('Bu video zaten eklenmiş');
+    const src: Source = {
+      id: newId(),
+      url: path,
+      note: note.trim().slice(0, 1000),
+      prompt: '',
+      createdAt: iso(),
+      stage: 'submitting',
+      kind: 'file',
+      file: path,
+      step: 'Sırada',
+    };
+    this.store.data.sources.push(src);
+    this.store.save();
+    log.info(`Video dosyası eklendi, Claude izleyecek: ${path}`);
+    this.enqueueAnalyse(src);
+    return src;
+  }
+
   checkSource(id: string): void {
     const src = this.store.source(id);
     if (src.stage === 'failed') Object.assign(src, { stage: src.projectId ? 'processing' : 'submitting', error: undefined });
@@ -556,8 +646,10 @@ export class Runtime {
   removeSource(id: string): void {
     const src = this.store.source(id);
     this.store.data.sources = this.store.data.sources.filter((s) => s !== src);
-    // Clips that already have a draft stay, the draft needs them.
+    // Clips that already have a draft stay, the draft needs them. The user's own video file is never touched.
+    for (const c of this.store.data.clips) if (c.sourceId === id && c.status !== 'drafted') rmSync(clipFile(this.ctx, c), { force: true });
     this.store.data.clips = this.store.data.clips.filter((c) => c.sourceId !== id || c.status === 'drafted');
+    rmSync(join(this.paths.home, 'media', 'analysis', id), { recursive: true, force: true });
     this.store.save();
     log.info(`Kaynak silindi: ${src.url}`);
   }
@@ -701,7 +793,9 @@ export class Runtime {
     const s = this.settings;
     const out: SetupIssue[] = [];
     if (this.ffmpegError) out.push({ text: `ffmpeg çalışmıyor: ${this.ffmpegError}`, section: 'video' });
-    if (!s.opusApiKey) out.push({ text: 'OpusClip API anahtarı girilmedi', section: 'opus' });
+    if (!s.opusApiKey && this.store.data.sources.some((x) => (x.kind ?? 'opus') === 'opus' && x.stage !== 'complete')) {
+      out.push({ text: 'OpusClip API anahtarı girilmedi (linkle eklenen videolar için)', section: 'opus' });
+    }
     if (!s.anthropicApiKey) out.push({ text: 'Claude API anahtarı girilmedi (seslendirme metni için)', section: 'claude' });
     if (!s.elevenApiKey) out.push({ text: 'ElevenLabs API anahtarı girilmedi', section: 'eleven' });
     else if (!s.voiceId) out.push({ text: 'Seslendirme sesi seçilmedi', section: 'eleven' });
@@ -740,7 +834,12 @@ export class Runtime {
         planAhead: s.planAhead,
         opusTopN: s.opusTopN,
       },
-      sources: [...this.store.data.sources].reverse().map((x) => ({ ...x, stageName: x.opusStage ? OPUS_STAGE_NAMES[x.opusStage] ?? x.opusStage : '' })),
+      sources: [...this.store.data.sources].reverse().map((x) => ({
+        ...x,
+        kind: x.kind ?? 'opus',
+        name: x.kind === 'file' ? basename(x.file ?? x.url) : x.url,
+        stageName: x.kind === 'file' ? x.step ?? '' : x.opusStage ? OPUS_STAGE_NAMES[x.opusStage] ?? x.opusStage : '',
+      })),
       clips: this.store.data.clips
         .map(clipView)
         .sort((a, b) => (sources.get(b.sourceId)?.createdAt ?? '').localeCompare(sources.get(a.sourceId)?.createdAt ?? '') || a.rank - b.rank),

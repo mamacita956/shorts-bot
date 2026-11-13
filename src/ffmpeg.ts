@@ -18,13 +18,24 @@ export function ffmpegPath(): string {
 
 const tail = (s: string) => s.trim().split(/\r?\n/).slice(-6).join(' | ');
 
-function spawnFfmpeg(args: string[], cwd: string | undefined, timeoutMs: number): Promise<{ code: number | null; stderr: string }> {
+function spawnFfmpeg(
+  args: string[],
+  cwd: string | undefined,
+  timeoutMs: number,
+  onLine?: (line: string) => void,
+): Promise<{ code: number | null; stderr: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn(ffmpegPath(), ['-hide_banner', '-nostdin', ...args], { cwd, windowsHide: true });
     let stderr = '';
+    let partial = '';
     p.stderr.on('data', (d) => {
       stderr += d;
       if (stderr.length > 400_000) stderr = stderr.slice(-200_000);
+      if (onLine) {
+        const lines = (partial + d).split(/\r?\n|\r/);
+        partial = lines.pop() ?? '';
+        lines.forEach(onLine);
+      }
     });
     p.stdout.resume();
     const timer = setTimeout(() => p.kill('SIGKILL'), timeoutMs);
@@ -34,13 +45,14 @@ function spawnFfmpeg(args: string[], cwd: string | undefined, timeoutMs: number)
     });
     p.on('close', (code) => {
       clearTimeout(timer);
+      if (onLine && partial) onLine(partial);
       resolve({ code, stderr });
     });
   });
 }
 
-export async function runFfmpeg(args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): Promise<string> {
-  const { code, stderr } = await spawnFfmpeg(args, opts.cwd, opts.timeoutMs ?? 20 * 60_000);
+export async function runFfmpeg(args: string[], opts: { cwd?: string; timeoutMs?: number; onLine?: (line: string) => void } = {}): Promise<string> {
+  const { code, stderr } = await spawnFfmpeg(args, opts.cwd, opts.timeoutMs ?? 20 * 60_000, opts.onLine);
   if (code !== 0) throw new Error(`ffmpeg hata verdi (${code}): ${tail(stderr)}`);
   return stderr;
 }
@@ -90,15 +102,43 @@ export function outputSeconds(clipSeconds: number, voiceSeconds: number): number
   return needed > clipSeconds ? needed : Math.min(clipSeconds, voiceSeconds + 3);
 }
 
+/** Wider than tall: shown whole in the middle of the vertical frame instead of filling it. */
+export const isLandscape = (info: { width: number; height: number }) => info.width > info.height * 1.05;
+
+/**
+ * Filter steps that turn `input` into a 1080x1920 picture labelled `out`. A portrait clip fills the frame. A landscape
+ * clip (match footage) sits in the middle over a blurred, darkened copy of itself, the usual look of football shorts;
+ * `zoom` (0-50 %) trims that much of its width so the action is bigger.
+ */
+export function verticalFrame(input: string, out: string, landscape: boolean, zoom: number): string[] {
+  if (!landscape) {
+    return [`${input}scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1${out}`];
+  }
+  const keep = (1 - Math.min(50, Math.max(0, zoom)) / 100).toFixed(3);
+  return [
+    `${input}split=2[vbg][vfg]`,
+    // Blurring a small copy and scaling it up looks the same as blurring the full frame and costs far less.
+    '[vbg]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,gblur=sigma=10,scale=1080:1920,eq=brightness=-0.12:saturation=1.15[vbgb]',
+    `[vfg]crop=trunc(iw*${keep}/2)*2:ih,scale=1080:-2:flags=lanczos[vfgs]`,
+    `[vbgb][vfgs]overlay=(W-w)/2:(H-h)/2,setsar=1${out}`,
+  ];
+}
+
 /** A 1080x1920 JPEG thumbnail: a clean frame of the clip (no captions) with the cover text from `subs` burned in. */
-export async function renderCover(o: { cwd: string; clip: string; at: number; subs: string; fontsDir: string; out: string }): Promise<void> {
+export async function renderCover(o: {
+  cwd: string;
+  clip: string;
+  at: number;
+  subs: string;
+  fontsDir: string;
+  out: string;
+  landscape?: boolean;
+  zoom?: number;
+}): Promise<void> {
   const fonts = relative(o.cwd, o.fontsDir).split(sep).join('/') || '.';
+  const graph = [...verticalFrame('[0:v]', '[f]', Boolean(o.landscape), o.zoom ?? 0), `[f]eq=contrast=1.08:saturation=1.25,ass=${o.subs}:fontsdir=${fonts}[v]`];
   await runFfmpeg(
-    [
-      '-y', '-ss', Math.max(0, o.at).toFixed(2), '-i', o.clip, '-frames:v', '1',
-      '-vf', `scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,eq=contrast=1.08:saturation=1.25,ass=${o.subs}:fontsdir=${fonts}`,
-      '-q:v', '3', o.out,
-    ],
+    ['-y', '-ss', Math.max(0, o.at).toFixed(2), '-i', o.clip, '-filter_complex', graph.join(';'), '-map', '[v]', '-frames:v', '1', '-q:v', '3', o.out],
     { cwd: o.cwd, timeoutMs: 60_000 },
   );
 }
@@ -119,6 +159,10 @@ export interface RenderOptions {
   /** 0–1 */
   musicVolume: number;
   out: string;
+  /** Wider than tall (match footage): placed in the middle over a blurred background. */
+  landscape?: boolean;
+  /** 0-50 % of a landscape clip's width trimmed away. */
+  zoom?: number;
 }
 
 export async function renderShort(o: RenderOptions): Promise<number> {
@@ -133,7 +177,8 @@ export async function renderShort(o: RenderOptions): Promise<number> {
   if (useMusic) args.push('-stream_loop', '-1', '-i', o.music as string);
 
   const graph = [
-    `[0:v]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30${hold},ass=${o.subs}:fontsdir=${fonts}[v]`,
+    ...verticalFrame('[0:v]', '[framed]', Boolean(o.landscape), o.zoom ?? 0),
+    `[framed]fps=30${hold},ass=${o.subs}:fontsdir=${fonts}[v]`,
     `[1:a]${fmt}[vo]`,
   ];
   const mix = ['[vo]'];

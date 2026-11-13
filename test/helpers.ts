@@ -49,6 +49,15 @@ export async function makeClip(file: string, seconds: number, size = '1080x1920'
   ]);
 }
 
+/** Landscape "match footage": quiet, then loud between 18 and 24 seconds (the crowd at a goal). */
+export async function makeMatch(file: string, seconds = 40) {
+  await runFfmpeg([
+    '-y', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=30', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
+    '-filter_complex', "[1:a]volume='if(between(t,18,24),1,0.05)':eval=frame[a]", '-map', '0:v', '-map', '[a]',
+    '-t', String(seconds), '-c:v', 'libx264', '-preset', 'ultrafast', '-g', '60', '-pix_fmt', 'yuv420p', '-c:a', 'aac', file,
+  ]);
+}
+
 export async function makeTone(file: string, seconds: number) {
   await runFfmpeg(['-y', '-f', 'lavfi', '-i', 'sine=frequency=660:sample_rate=44100', '-t', seconds.toFixed(2), '-c:a', 'libmp3lame', '-b:a', '64k', file]);
 }
@@ -98,7 +107,25 @@ export interface Recorded {
   lessons: Record<string, unknown>[];
   thumbnails: { videoId: string; type: string; body: Buffer }[];
   videoLookups: string[];
+  /** Speech-to-text uploads: the form fields and the audio size. */
+  stt: { fields: Record<string, string>; bytes: number }[];
+  /** Clip-agent requests: stage 1 (candidates) and stage 2 (final clips). */
+  finder: { stage: 1 | 2; body: Record<string, unknown> }[];
 }
+
+/** What the fake speech-to-text hears in the match video. */
+export const HEARD = [
+  { text: 'Top', type: 'word', start: 3.0, end: 3.3 },
+  { text: ' ', type: 'spacing', start: 3.3, end: 3.4 },
+  { text: 'orta', type: 'word', start: 3.4, end: 3.8 },
+  { text: 'sahada.', type: 'word', start: 3.9, end: 4.5 },
+  { text: 'Ceza', type: 'word', start: 17.0, end: 17.4 },
+  { text: 'sahasına', type: 'word', start: 17.5, end: 18.2 },
+  { text: 'giriyor', type: 'word', start: 18.3, end: 18.9 },
+  { text: 've', type: 'word', start: 19.0, end: 19.2 },
+  { text: 'GOOOL!', type: 'word', start: 19.3, end: 21.0 },
+  { text: '(cheering)', type: 'audio_event', start: 19.5, end: 24.0 },
+];
 
 /** Fake OpusClip, ElevenLabs, Claude and Google endpoints backed by real media files. */
 export async function startFakes(dir: string, clipSeconds = 6) {
@@ -106,7 +133,18 @@ export async function startFakes(dir: string, clipSeconds = 6) {
   await makeClip(clip, clipSeconds);
   const rec: Recorded = {
     opusCreate: [], claude: [], reviews: [], claudeHeaders: [], eleven: [], uploadInit: [], uploadHeaders: [], uploaded: [], tokenRequests: [],
-    lessons: [], thumbnails: [], videoLookups: [],
+    lessons: [], thumbnails: [], videoLookups: [], stt: [], finder: [],
+  };
+  // What the clip agent answers in its two stages; the test can change it.
+  const agent = {
+    candidates: [
+      { start: 14, end: 30, title: 'Son dakika golü', why: 'Ses 18. saniyede yükseliyor, spiker GOOOL diye bağırıyor.' },
+      { start: 1, end: 9, title: 'Orta saha', why: 'Sakin bir an.' },
+    ],
+    clips: [
+      { candidate: 1, start: 15, end: 27, score: 91, title: 'Ağları sarsan gol', reason: 'Atak, gol ve tribünün coşkusu tek klipte.' },
+      { candidate: 2, start: 1, end: 12, score: 38, title: 'Orta sahada pas', reason: 'Zayıf ama yedek olarak dursun.' },
+    ],
   };
   // What the fake YouTube reports about uploaded videos; the test can change it.
   const yt = {
@@ -155,6 +193,14 @@ export async function startFakes(dir: string, clipSeconds = 6) {
       await makeTone(tone, alignment.character_end_times_seconds.at(-1) ?? 1);
       return sendJson(res, 200, { audio_base64: (await readFile(tone)).toString('base64'), alignment, normalized_alignment: alignment });
     }
+    if (req.method === 'POST' && req.url?.startsWith('/v1/speech-to-text')) {
+      const text = body.toString('latin1');
+      const fields: Record<string, string> = {};
+      for (const m of text.matchAll(/name="([^"]+)"\r\n\r\n([^\r]*)\r\n/g)) fields[m[1]] = m[2];
+      const file = /name="file"; filename="[^"]*"\r\nContent-Type: [^\r]*\r\n\r\n/.exec(text);
+      rec.stt.push({ fields, bytes: file ? body.length - (file.index + file[0].length) : 0 });
+      return sendJson(res, 200, { language_code: 'tur', language_probability: 0.98, text: 'Top orta sahada. Ceza sahasına giriyor ve GOOOL!', words: HEARD });
+    }
     if (req.url?.startsWith('/v2/voices')) {
       return sendJson(res, 200, { voices: [{ voice_id: 'V1', name: 'Ahmet', category: 'premade', labels: { gender: 'male', language: 'tr' }, preview_url: null }], has_more: false, total_count: 1 });
     }
@@ -167,7 +213,10 @@ export async function startFakes(dir: string, clipSeconds = 6) {
     rec.claudeHeaders.push(req.headers);
     const props = b.output_config?.format?.schema?.properties ?? {};
     let answer: unknown = SCRIPT;
-    if (props.verdict) {
+    if (props.candidates || props.clips) {
+      rec.finder.push({ stage: props.candidates ? 1 : 2, body: b });
+      answer = props.candidates ? { candidates: agent.candidates } : { clips: agent.clips };
+    } else if (props.verdict) {
       answer = panel.opinion(rec.reviews.length);
       rec.reviews.push(b);
     } else if (props.lessons) {
@@ -247,6 +296,7 @@ export async function startFakes(dir: string, clipSeconds = 6) {
     rec,
     panel,
     yt,
+    agent,
     clip,
     endpoints: { opus: opus.url, eleven: eleven.url, claude: claude.url },
     google: { auth: `${google.url}/auth`, token: `${google.url}/token`, api: `${google.url}/youtube/v3`, upload: `${google.url}/upload/youtube/v3` },

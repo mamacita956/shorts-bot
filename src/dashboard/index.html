@@ -141,6 +141,9 @@ details.help ol { margin: 8px 0 0; padding-left: 20px; color: var(--text-seconda
 .vidwrap { position: relative; }
 .vid { display: block; width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: 8px; object-fit: contain; }
 .vid.placeholder { display: grid; place-items: center; color: #bbb; font-size: 13px; text-align: center; padding: 16px; }
+.score { position: absolute; top: 8px; right: 8px; background: var(--accent, #2a6df4); color: #fff; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
+.reason { font-size: 12px; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.src-file { font-weight: 600; overflow-wrap: anywhere; }
 .rank { position: absolute; top: 8px; left: 8px; background: rgb(0 0 0 / 0.72); color: #fff; font-weight: 700; font-size: 12px; padding: 2px 8px; border-radius: 999px; }
 .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
 .clip { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; display: grid; gap: 8px; align-content: start; min-width: 0; }
@@ -217,7 +220,7 @@ td.nowrap { white-space: nowrap; }
     <div class="panel">
       <h2>Nasıl çalışır</h2>
       <ol class="steps">
-        <li><b>Kaynaklar</b>’a video bağlantısını ekle. OpusClip videodan klipleri çıkarıp puana göre sıralar; en iyi <span id="topN">5</span> tanesi kullanılır.</li>
+        <li><b>Kaynaklar</b>’a bilgisayarındaki maç videosunu ekle: Claude onu izler (kareler, konuşmaların dökümü, sesin yükseldiği anlar), en iyi anları puanlayıp keser. Video bağlantısı eklersen klipleri OpusClip çıkarır. Her videonun en iyi <span id="topN">5</span> klibi kullanılır.</li>
         <li>Uygulama en iyi kliplerden taslak hazırlar: Claude klibe bakıp seslendirme metnini, başlığı, etiketleri ve kapak yazısını yazar, ElevenLabs seslendirir, kelime kelime altyazı ve üst başlık eklenir. Klibin en çarpıcı karesinden bir de kapak görseli hazırlanır.</li>
         <li>Üç değerlendirme ajanı (İzleyici, Editör, Kanal yöneticisi) bitmiş videoyu inceleyip tartışır. Onaylarlarsa video sıradaki yayın saatine yerleşir ve YouTube’a yüklenir; reddederlerse metin onların önerileriyle yeniden yazılır, yine olmazsa karar sana kalır. Yayınlar sırayla <span id="cadence">her 2 günde bir</span> çıkar.</li>
         <li><b>Taslaklar</b>’da ajanların tartışmasını okuyabilir, metni düzeltebilir ya da istediğin videoyu kendin onaylayabilirsin.</li>
@@ -230,16 +233,19 @@ td.nowrap { white-space: nowrap; }
     <form class="panel" id="sourceForm" autocomplete="off">
       <h2>Yeni video ekle</h2>
       <div class="fields">
-        <label class="wide">Video bağlantısı <input id="srcUrl" type="url" required placeholder="https://www.youtube.com/watch?v=..."></label>
+        <label class="wide">Video dosyası ya da bağlantısı
+          <span class="row-actions" style="margin:0"><input id="srcUrl" required spellcheck="false" style="flex:1;min-width:220px" placeholder="C:\Videolar\derbi.mp4  ya da  https://www.youtube.com/watch?v=...">
+          <button class="btn small secondary" type="button" id="pickFile" hidden>Dosya seç…</button></span></label>
         <label class="wide"><span class="lbl">Bu video ne hakkında? <span class="counter">Claude metni yazarken kullanır: maç, takımlar, oyuncular, tarih…</span></span>
           <textarea id="srcNote" rows="2" maxlength="1000" placeholder="örnek: 2024 Galatasaray - Fenerbahçe derbisi, 2. yarı"></textarea></label>
-        <label class="wide">OpusClip neyi arasın? (isteğe bağlı) <input id="srcPrompt" maxlength="300" placeholder="örnek: goller, kurtarışlar ve kavgalar"></label>
+        <label class="wide">OpusClip neyi arasın? (sadece linkler için, isteğe bağlı) <input id="srcPrompt" maxlength="300" placeholder="örnek: goller, kurtarışlar ve kavgalar"></label>
       </div>
       <div class="row-actions" style="margin-top:14px">
-        <button class="btn" id="srcAdd" type="submit">OpusClip’e gönder</button>
+        <button class="btn" id="srcAdd" type="submit">Ekle</button>
         <span class="note" id="srcMsg" role="status" style="margin:0"></span>
       </div>
-      <p class="note">OpusClip her dakika video için 1 kredi harcar; API’den açılan her proje en az 10 kredi tutar. “OpusClip neyi arasın?” sadece ClipAnything modelinde kullanılır.</p>
+      <p class="note"><b>Video dosyası:</b> Claude videoyu izler (birkaç saniyede bir kare, konuşmaların dökümü ve sesin yükseldiği anlar), en iyi anları puanlayıp kendisi keser. Ne aradığını Ayarlar → Klip ajanı’ndan söylersin. Bir maç için 5-15 dakika sürer ve yaklaşık 1,5 dolar tutar (Claude + ElevenLabs).<br>
+        <b>Bağlantı:</b> OpusClip işler; her dakika video için 1 kredi, API projesi en az 10 kredi. YouTube linkinden video indirmek YouTube kurallarına aykırı olduğu için Claude linkle çalışmaz.</p>
     </form>
     <div class="panel">
       <h2>Eklenen videolar</h2>
@@ -250,8 +256,8 @@ td.nowrap { white-space: nowrap; }
   <section id="tab-clips" class="tabpanel" hidden>
     <div class="panel">
       <div class="panel-head">
-        <h2>OpusClip klipleri</h2>
-        <span class="sub">#1 = OpusClip’in en yüksek puan verdiği klip</span>
+        <h2>Klipler</h2>
+        <span class="sub">#1 = en yüksek puanlı klip (Claude’un puanı ya da OpusClip’in sırası)</span>
         <span class="spacer"></span>
         <div class="seg" id="clipSeg">
           <button data-f="new" aria-pressed="true">Kullanılmamış</button>
@@ -313,7 +319,14 @@ td.nowrap { white-space: nowrap; }
   <section id="tab-settings" class="tabpanel" hidden>
     <form class="panel settings" id="settingsForm" autocomplete="off">
       <p class="note" style="margin:0 0 14px">Kayıtlı API anahtarlarının yerinde son 4 hanesi görünür; değiştirmeyeceksen o alanı boş bırak.</p>
-      <h2 id="set-opus">OpusClip</h2>
+      <h2 id="set-agent">Klip ajanı (video dosyaları)</h2>
+      <div class="fields">
+        <label class="wide"><span class="lbl">Claude hangi anları seçsin? <span class="counter">Videoyu izlerken buna göre seçer ve puanlar</span></span>
+          <textarea id="sWishes" rows="3" maxlength="1000"></textarea></label>
+      </div>
+      <p class="note">Kaynaklar’a bilgisayarındaki bir video dosyasını eklediğinde Claude onu izler: birkaç saniyede bir kare, ElevenLabs ile yazıya dökülen konuşmalar ve sesin yükseldiği anlar. Önce aday anları bulur, sonra her birine saniye saniye bakıp en iyilerini 0-100 arası puanlar, başlangıç ve bitişini kendisi ayarlar. Kanal dersleri de seçime katılır. Klip uzunluğu aşağıdaki “Klip süreleri”nden, sayısı “Her videodan kullanılacak klip sayısı”ndan gelir.</p>
+
+      <h2 id="set-opus" style="margin-top:24px">OpusClip (linkler için)</h2>
       <div class="fields">
         <label>API anahtarı <input id="sOpusKey" type="password" spellcheck="false"></label>
         <label>Org ID (birden fazla organizasyonun varsa) <input id="sOpusOrg" spellcheck="false" placeholder="org_..."></label>
@@ -355,8 +368,10 @@ td.nowrap { white-space: nowrap; }
         <label>Üst başlık süresi (sn, 0 = video boyunca) <input id="sHookSec" type="number" min="0" max="60" step="0.5"></label>
         <label>Altyazı konumu <select id="sCapPos"><option value="lower">Alt kısım</option><option value="middle">Orta</option></select></label>
         <label>Vurgulanan kelime rengi <input id="sHighlight" type="color"></label>
+        <label>Yatay videoda yakınlaştırma (%) <input id="sZoom" type="number" min="0" max="50" step="5"></label>
         <label class="check wide"><input id="sCover" type="checkbox"> Her videoya kapak görseli hazırla ve YouTube’a yükle</label>
       </div>
+      <p class="note">Yatay video (maç görüntüsü): klip dikey videonun ortasına yerleşir, arkasına kendisinin bulanık hali konur; yakınlaştırma görüntünün yanlarından o kadar kırpıp aksiyonu büyütür.</p>
       <p class="note">Kapak: Claude klibin en çarpıcı karesini ve 2-4 kelimelik kapak yazısını seçer; yazı, altyazısız kareye büyük harflerle basılır. YouTube özel kapağa sadece telefonla doğrulanmış kanallarda izin verir (youtube.com/verify).</p>
       <p class="note">Müzik: aşağıdaki klasöre koyduğun mp3/m4a/wav dosyalarından her videoya rastgele biri eklenir. Klasör boşsa müzik eklenmez. Telifsiz müzik kullan (örneğin YouTube Ses Kitaplığı).
         <br><span id="musicDir" class="num"></span> <button class="btn small secondary" type="button" id="openMusic">Müzik klasörünü aç</button></p>
@@ -446,6 +461,8 @@ td.nowrap { white-space: nowrap; }
   const clock = (t) => new Date(t).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const secs = (s) => (s == null ? '—' : `${Math.round(s)} sn`);
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u || ''; } };
+  const fileName = (p) => String(p || '').split(/[\\/]/).pop();
+  const clockOf = (sec) => { const s = Math.max(0, Math.floor(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const words = (t) => (String(t || '').trim().match(/\S+/g) || []).length;
   const WPS = 2.3;
 
@@ -547,13 +564,15 @@ td.nowrap { white-space: nowrap; }
     $('sources').innerHTML = s.sources.length
       ? s.sources.map((x) => {
         const [t, c] = SRC[x.stage] || [x.stage, ''];
-        return `<div class="src" data-id="${esc(x.id)}">
-          <div class="src-top"><span class="chip ${c}">${esc(t)}</span>${x.stageName && x.stage === 'processing' ? `<span class="sub">${esc(x.stageName)}</span>` : ''}
-            ${x.stage === 'complete' ? `<span class="sub">${x.clipCount} klip</span>` : ''}<span class="spacer"></span><span class="sub num">${short(x.createdAt)}</span></div>
-          <a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.url)}</a>
+        const file = x.kind === 'file';
+        const label = file && x.stage === 'submitting' ? 'Sırada' : t;
+        return `<div class="src" data-id="${esc(x.id)}" data-kind="${esc(x.kind)}">
+          <div class="src-top"><span class="chip ${c}">${esc(label)}</span>${x.stageName && x.stage === 'processing' ? `<span class="sub">${esc(x.stageName)}</span>` : ''}
+            ${x.stage === 'complete' ? `<span class="sub">${x.clipCount} klip</span>` : ''}<span class="spacer"></span><span class="sub">${file ? 'Claude klip ajanı' : 'OpusClip'}</span><span class="sub num">${short(x.createdAt)}</span></div>
+          ${file ? `<div class="src-file" title="${esc(x.file || x.url)}">${esc(x.name)}</div>` : `<a href="${esc(x.url)}" target="_blank" rel="noreferrer">${esc(x.url)}</a>`}
           ${x.note ? `<div class="sub">Not: ${esc(x.note)}</div>` : ''}${x.prompt ? `<div class="sub">OpusClip’e tarif: ${esc(x.prompt)}</div>` : ''}
           ${x.error ? `<div class="errbox">${esc(x.error)}</div>` : ''}
-          <div class="row-actions">${x.stage !== 'complete' ? `<button class="btn small secondary" data-act="check">${x.stage === 'failed' ? 'Tekrar dene' : 'Şimdi kontrol et'}</button>` : ''}<button class="btn small danger" data-act="delete">Sil</button></div>
+          <div class="row-actions">${x.stage === 'failed' || (!file && x.stage !== 'complete') ? `<button class="btn small secondary" data-act="check">${x.stage === 'failed' ? 'Tekrar dene' : 'Şimdi kontrol et'}</button>` : ''}<button class="btn small danger" data-act="delete">Sil</button></div>
         </div>`;
       }).join('')
       : '<div class="empty">Henüz video eklenmedi.</div>';
@@ -562,19 +581,20 @@ td.nowrap { white-space: nowrap; }
   let clipsSig = '';
   function renderClips(s) {
     const list = s.clips.filter((c) => clipFilter === 'all' || c.status === clipFilter);
-    const sig = clipFilter + list.map((c) => `${c.key}:${c.status}:${c.previewSrc}`).join('|');
+    const sig = clipFilter + list.map((c) => `${c.key}:${c.status}:${c.previewSrc}:${c.score}`).join('|');
     if (sig === clipsSig) return;
     clipsSig = sig;
     const STATUS = { new: '', drafted: 'Taslak yapıldı', skipped: 'Atlandı' };
     $('clips').innerHTML = list.length
       ? list.map((c) => `<article class="clip" data-key="${esc(c.key)}">
-          <div class="vidwrap">${c.previewSrc ? `<video class="vid" src="${esc(c.previewSrc)}#t=0.5" preload="metadata" controls playsinline></video>` : '<div class="vid placeholder">Önizleme yok</div>'}<span class="rank">#${c.rank}</span></div>
+          <div class="vidwrap">${c.previewSrc ? `<video class="vid" src="${esc(c.previewSrc)}#t=0.5" preload="metadata" controls playsinline></video>` : '<div class="vid placeholder">Önizleme yok</div>'}<span class="rank">#${c.rank}</span>${c.score != null ? `<span class="score" title="Claude’un puanı">${c.score} puan</span>` : ''}</div>
           <div class="clip-title">${esc(c.title || 'Başlıksız klip')}</div>
-          <div class="sub">${secs(c.seconds)} · ${esc(host(c.sourceUrl))}${STATUS[c.status] ? ` · ${STATUS[c.status]}` : ''}</div>
+          ${c.score != null && c.description ? `<div class="reason" title="${esc(c.description)}">${esc(c.description)}</div>` : ''}
+          <div class="sub">${secs(c.seconds)}${c.startSec != null ? ` · videoda ${esc(clockOf(c.startSec))}` : ''} · ${esc(c.score != null ? fileName(c.sourceUrl) : host(c.sourceUrl))}${STATUS[c.status] ? ` · ${STATUS[c.status]}` : ''}</div>
           <div class="row-actions">${c.status === 'drafted' ? '' : `<button class="btn small" data-act="draft">Taslak hazırla</button>`}
             ${c.status === 'new' ? '<button class="btn small secondary" data-act="skip">Atla</button>' : c.status === 'skipped' ? '<button class="btn small secondary" data-act="unskip">Geri al</button>' : ''}</div>
         </article>`).join('')
-      : `<div class="empty">${clipFilter === 'new' ? 'Kullanılmamış klip yok. Kaynaklar’dan video ekle; OpusClip bitirince klipler burada çıkar.' : 'Bu filtrede klip yok.'}</div>`;
+      : `<div class="empty">${clipFilter === 'new' ? 'Kullanılmamış klip yok. Kaynaklar’dan video ekle; Claude ya da OpusClip bitirince klipler burada çıkar.' : 'Bu filtrede klip yok.'}</div>`;
   }
 
   // Cards are rebuilt only when their draft changes and the user is not editing them.
@@ -757,6 +777,7 @@ td.nowrap { white-space: nowrap; }
 
   function render() {
     renderHeader(S);
+    $('pickFile').hidden = !S.desktop;
     const tab = tabs.find((b) => b.getAttribute('aria-selected') === 'true')?.dataset.tab;
     if (tab === 'home') renderHome(S);
     if (tab === 'sources') renderSources(S);
@@ -798,9 +819,11 @@ td.nowrap { white-space: nowrap; }
     const btn = $('srcAdd');
     btn.disabled = true;
     try {
-      await api('/api/sources', { url: $('srcUrl').value, note: $('srcNote').value, prompt: $('srcPrompt').value });
+      const src = await api('/api/sources', { url: $('srcUrl').value, note: $('srcNote').value, prompt: $('srcPrompt').value });
       $('srcUrl').value = ''; $('srcNote').value = ''; $('srcPrompt').value = '';
-      say($('srcMsg'), 'Eklendi. OpusClip videoyu işleyince klipler Klipler sekmesine gelir (video uzunluğuna göre 5-30 dakika).', 'ok');
+      say($('srcMsg'), src.kind === 'file'
+        ? 'Eklendi. Claude videoyu izliyor; bir maç için 5-15 dakika sürer. Bitince klipler Klipler sekmesine gelir ve bildirim alırsın.'
+        : 'Eklendi. OpusClip videoyu işleyince klipler Klipler sekmesine gelir (video uzunluğuna göre 5-30 dakika).', 'ok');
       refresh();
     } catch (err) {
       say($('srcMsg'), err.message, 'err');
@@ -808,11 +831,22 @@ td.nowrap { white-space: nowrap; }
       btn.disabled = false;
     }
   });
+  $('pickFile').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/pick-file', {});
+      if (r.path) $('srcUrl').value = r.path;
+    } catch (err) {
+      say($('srcMsg'), err.message, 'err');
+    }
+  });
   $('sources').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const id = b.closest('[data-id]').dataset.id;
-    if (b.dataset.act === 'delete' && !confirm('Bu video ve kullanılmamış klipleri silinsin mi? (OpusClip’teki proje silinmez)')) return;
+    const fileSrc = b.closest('[data-kind]')?.dataset.kind === 'file';
+    if (b.dataset.act === 'delete' && !confirm(fileSrc
+      ? 'Bu video listeden ve kullanılmamış klipleri silinsin mi? (Bilgisayarındaki video dosyasına dokunulmaz)'
+      : 'Bu video ve kullanılmamış klipleri silinsin mi? (OpusClip’teki proje silinmez)')) return;
     b.disabled = true;
     try { await api(`/api/sources/${id}/${b.dataset.act}`, {}); } catch (err) { alert(err.message); }
     refresh();
@@ -929,6 +963,8 @@ td.nowrap { white-space: nowrap; }
     $('sHookSec').value = s.hookSeconds;
     $('sCapPos').value = s.captionPosition;
     $('sHighlight').value = s.highlightColor;
+    $('sZoom').value = s.landscapeZoom;
+    $('sWishes').value = s.clipWishes;
     $('sCover').checked = s.coverEnabled;
     $('musicDir').textContent = s.musicDir;
     $('sGoogleId').value = s.googleClientId;
@@ -1035,6 +1071,7 @@ td.nowrap { white-space: nowrap; }
       voiceSpeed: Number($('sSpeed').value), voiceStability: Number($('sStability').value),
       originalVolume: Number($('sOrigVol').value), musicVolume: Number($('sMusicVol').value), hookSeconds: Number($('sHookSec').value),
       captionPosition: $('sCapPos').value, highlightColor: $('sHighlight').value, coverEnabled: $('sCover').checked,
+      landscapeZoom: Number($('sZoom').value), clipWishes: $('sWishes').value,
       googleClientId: $('sGoogleId').value, googleClientSecret: $('sGoogleSecret').value, categoryId: $('sCategory').value,
       madeForKids: $('sKids').checked, syntheticMedia: $('sSynthetic').checked, descriptionFooter: $('sFooter').value,
       intervalDays: Number($('sInterval').value), publishTime: $('sTime').value, autoPrepare: $('sAutoPrepare').checked,

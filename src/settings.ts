@@ -95,6 +95,10 @@ export interface Settings {
   planAhead: number;
   /** Make a thumbnail for every short and set it on YouTube. */
   coverEnabled: boolean;
+  /** What the clip agent looks for in video files. */
+  clipWishes: string;
+  /** 0-50 % of a landscape clip's width trimmed away in the vertical frame. */
+  landscapeZoom: number;
 }
 
 export const REVIEW_MODES = ['agents', 'advisory', 'off'] as const;
@@ -145,6 +149,10 @@ export const DEFAULTS: Settings = {
   opusTopN: 5,
   planAhead: 3,
   coverEnabled: true,
+  clipWishes:
+    'Goller, kaçan büyük pozisyonlar, kurtarışlar, çalımlar, tartışmalı pozisyonlar, kırmızı kartlar ve taraftar coşkusu. ' +
+    'Her klip tek bir anı anlatsın: pozisyonun gelişimi, anın kendisi ve tepki.',
+  landscapeZoom: 15,
 };
 
 export function loadSettings(path: string): Settings {
@@ -262,6 +270,8 @@ export function applySettingsInput(current: Settings, body: Record<string, unkno
   if (has('opusTopN')) s.opusTopN = num(body.opusTopN, 1, 50, 'Kullanılacak klip sayısı', true);
   if (has('planAhead')) s.planAhead = num(body.planAhead, 1, 15, 'İleriye planlanacak yayın sayısı', true);
   if (has('coverEnabled')) s.coverEnabled = body.coverEnabled === true;
+  if (has('clipWishes')) s.clipWishes = String(body.clipWishes ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 1000);
+  if (has('landscapeZoom')) s.landscapeZoom = num(body.landscapeZoom, 0, 50, 'Yatay videoda yakınlaştırma', true);
   return s;
 }
 

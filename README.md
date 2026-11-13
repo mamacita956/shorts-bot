@@ -1,14 +1,34 @@
 # Shorts Bot
 
-Uzun videolardan OpusClip’in en yüksek puan verdiği klipleri alır, her klibi kendi anlatımınla özgünleştirir ve YouTube Shorts kanalına düzenli aralıklarla (varsayılan: 2 günde bir, 19:00) yayınlar.
+Uzun videolardan en iyi anları seçer, her klibi kendi anlatımınla özgünleştirir ve YouTube Shorts kanalına düzenli aralıklarla (varsayılan: 2 günde bir, 19:00) yayınlar.
 
-Bir klip şöyle hazırlanır:
-1. **OpusClip** videodan klipleri çıkarır, dikey (9:16) hale getirir ve puana göre sıralar. Her videonun en iyi 5 klibi kullanılır (Ayarlar’dan değişir).
+Klipler iki yoldan gelir:
+- **Video dosyası → Claude klip ajanı:** Bilgisayarındaki maç videosunu Claude izler, en iyi anları puanlayıp kendisi keser (aşağıda). OpusClip gerekmez.
+- **Bağlantı → OpusClip:** OpusClip videodan klipleri çıkarır, dikey hale getirir ve puana göre sıralar.
+
+Her videonun en iyi 5 klibi kullanılır (Ayarlar’dan değişir). Bir klip şöyle hazırlanır:
+1. Klip ajanı ya da OpusClip klipleri seçer.
 2. **Claude** klipten 4 kare görür, klibin konuşmasını ve senin notunu okur. Seslendirme metnini, videonun üstündeki başlığı, YouTube başlığını, açıklamayı, etiketleri ve kapak yazısını yazar. Kanalın önceki videolarından çıkan dersleri de kullanır (aşağıda).
 3. **ElevenLabs** metni seçtiğin sesle seslendirir.
-4. Uygulama **ffmpeg** ile videoyu birleştirir: seslendirme öne çıkar, klibin kendi sesi kısılır (varsayılan %25), istersen müzik eklenir. Seslendirmeye kelime kelime eşlenen altyazı ve üstte başlık kutusu basılır. Klibin en çarpıcı karesinden bir de **kapak görseli** hazırlanır.
+4. Uygulama **ffmpeg** ile videoyu birleştirir: seslendirme öne çıkar, klibin kendi sesi kısılır (varsayılan %25), istersen müzik eklenir. Seslendirmeye kelime kelime eşlenen altyazı ve üstte başlık kutusu basılır. Yatay maç görüntüsü dikey videonun ortasına yerleşir, arkasına kendisinin bulanık hali konur (futbol Shorts’larındaki bilinen görünüm). Klibin en çarpıcı karesinden bir de **kapak görseli** hazırlanır.
 5. Üç **değerlendirme ajanı** bitmiş videoyu inceleyip tartışır (aşağıda). Onaylarlarsa video **YouTube**’a hemen yüklenir ve gizli bekler; yayın saati gelince YouTube onu herkese açar. O saatte bilgisayarın kapalı olması sorun değil. YouTube videoyu işlemeyi bitirince kapak da yüklenir.
 6. Yayınlanan videoların **izlenme, beğeni ve yorum** sayıları YouTube’dan alınır. Claude bunlardan kanal için dersler çıkarır; sonraki videolarda metni yazan Claude ve ajanlar bu dersleri kullanır.
+
+## Klip ajanı (video dosyaları)
+
+Kaynaklar’a bilgisayarındaki bir video dosyasını eklersin (masaüstünde **Dosya seç…**, ya da dosyanın yolunu yapıştır). Claude videoyu doğrudan oynatamaz; uygulama onu şöyle “izletir”:
+
+1. **Ses:** Videonun sesi ayrılır ve **ElevenLabs** (Scribe) ile kelime kelime yazıya dökülür; tezahürat gibi sesler de işaretlenir. Sesin saniye saniye ne kadar yükseldiği de ölçülür: gol anında spiker ve tribün bağırır.
+2. **Görüntü:** Videonun tamamından birkaç saniyede bir kare alınır, üzerine zamanı yazılır ve 20’li sayfalar halinde Claude’a gösterilir (90 dakikalık maç ≈ 54 sayfa).
+3. **Aday anlar:** Claude kareleri, dökümü ve ses grafiğini birlikte okuyup aday anları bulur.
+4. **Yakından bakış:** Her adayın çevresinden saniyede bir kare alınır. Claude bunlara bakıp en iyi klipleri seçer, her birine 0-100 arası puan verir, başlangıç ve bitişini kendisi ayarlar (golde atak başından tepkiye kadar), aynı anın tekrarını eler.
+5. Seçilen anlar videodan kesilir ve **Klipler**’e puan sırasıyla gelir; her klipte Claude’un neden seçtiği yazar.
+
+**Ayarlar → Klip ajanı**’ndaki kutuya Claude’un ne araması gerektiğini yazarsın (“goller, kurtarışlar, tartışmalı pozisyonlar…”). Kanal tarzı, videoya yazdığın not ve YouTube sonuçlarından çıkan kanal dersleri de seçime katılır. Klip uzunluğu “Klip süreleri”nden, sayısı “Her videodan kullanılacak klip sayısı”ndan gelir.
+
+Bir maç 5-15 dakikada biter ve yaklaşık 1,5 dolar tutar: ElevenLabs döküm saati 0,20 dolar, gerisi Claude. Senin video dosyana hiç dokunulmaz; kaynağı silsen de yerinde kalır.
+
+YouTube linkinden video indirmek YouTube’un kullanım şartlarına aykırı olduğu için klip ajanı sadece dosyayla çalışır. Linkle eklenen videoları OpusClip işler.
 
 ## Değerlendirme ajanları
 
@@ -54,9 +74,9 @@ Pano’daki “Kurulum tamamlanmadı” listesi eksik olanları gösterir; madde
 
 | Servis | Ne için | Anahtar nereden alınır |
 |---|---|---|
-| OpusClip | Videodan klip çıkarma | clip.opus.pro/dashboard → sol alt köşe. API, OpusClip’in **Pro, Max ve Business** planlarında açık. |
-| Claude | Seslendirme metni, başlık, etiketler | Claude Console (platform.claude.com) → API Keys |
-| ElevenLabs | Seslendirme | ElevenLabs hesabı → Developers → API Keys. Kaydettikten sonra **Sesleri getir** ile bir ses seç. |
+| Claude | Klip ajanı, seslendirme metni, başlık, etiketler, değerlendirme | Claude Console (platform.claude.com) → API Keys |
+| ElevenLabs | Seslendirme ve videodaki konuşmaların dökümü | ElevenLabs hesabı → Developers → API Keys. Kaydettikten sonra **Sesleri getir** ile bir ses seç. |
+| OpusClip (isteğe bağlı) | Linkle eklenen videolardan klip çıkarma | clip.opus.pro/dashboard → sol alt köşe. API, OpusClip’in **Pro, Max ve Business** planlarında açık. Sadece video dosyası kullanacaksan gerekmez. |
 | YouTube | Yükleme ve zamanlama | Aşağıdaki adımlar (bir kerelik, ~10 dakika) |
 
 ### YouTube’u bağlama
@@ -72,8 +92,8 @@ Google, doğrulanmamış projelerden yüklenen videoları eskiden “gizli”ye 
 
 ## Kullanım
 
-- **Kaynaklar:** Video bağlantısını ekle (YouTube, Drive, Vimeo, Twitch…). “Bu video ne hakkında?” alanına maç, takımlar, oyuncular gibi bilgileri yaz. Claude bunları kullanır ve emin olmadığı isim, skor ya da tarihi uydurmaz. “OpusClip neyi arasın?” alanına “goller ve kurtarışlar” gibi bir tarif yazabilirsin; bu alan sadece ClipAnything modelinde kullanılır. OpusClip videonun uzunluğuna göre 5-30 dakikada bitirir.
-- **Klipler:** OpusClip’in klipleri. **#1** OpusClip’in en yüksek puan verdiği klip. **Taslak hazırla** ya da **Atla**.
+- **Kaynaklar:** Bilgisayarındaki video dosyasını seç (klip ajanı) ya da video bağlantısını ekle (OpusClip: YouTube, Drive, Vimeo, Twitch…). “Bu video ne hakkında?” alanına maç, takımlar, oyuncular gibi bilgileri yaz. Claude bunları kullanır ve emin olmadığı isim, skor ya da tarihi uydurmaz. “OpusClip neyi arasın?” alanına “goller ve kurtarışlar” gibi bir tarif yazabilirsin; bu alan sadece ClipAnything modelinde kullanılır. OpusClip videonun uzunluğuna göre 5-30 dakikada bitirir.
+- **Klipler:** Seçilen klipler. **#1** en yüksek puanlı klip: klip ajanında Claude’un puanı ve gerekçesi kartta yazar, OpusClip’te OpusClip’in sırasıdır. **Taslak hazırla** ya da **Atla**.
 - **Taslaklar:** Hazırlanan videoyu izle. Başlığı, metni, açıklamayı ve etiketleri düzeltebilirsin:
   - Metni ya da üst başlığı değiştirip **Kaydet**’e basarsan seslendirme ve video yeniden oluşur. Sadece kapak yazısını değiştirirsen sadece kapak yeniden hazırlanır.
   - **Claude yeniden yazsın:** “Claude’a not” alanındaki yönlendirmeyle yeni bir versiyon yazar (“daha esprili olsun”, “oyuncunun adı Icardi” gibi).
@@ -98,7 +118,8 @@ Gerçek bir kişinin sesini taklit eden bir ElevenLabs sesi kullanıyorsan Ayarl
 
 ## Maliyetler
 
-- **OpusClip:** 1 kredi = 1 dakika kaynak video. API ile açılan her proje en az 10 kredi. Pro/Max planlarında API ile ayda en fazla 900 kredi (15 saat) işlenebilir.
+- **Klip ajanı:** 90 dakikalık maç başına yaklaşık 1,5 dolar (ElevenLabs döküm 0,20 dolar/saat, gerisi Claude).
+- **OpusClip (linkler için):** 1 kredi = 1 dakika kaynak video. API ile açılan her proje en az 10 kredi. Pro/Max planlarında API ile ayda en fazla 900 kredi (15 saat) işlenebilir.
 - **ElevenLabs:** Karakter başına. 45 saniyelik bir Short yaklaşık 600-800 karakter.
 - **Claude:** Taslak başına birkaç sent (4 küçük görüntü ve kısa bir metin); ajan kurulu video başına 6 kısa istek daha yapar, yaklaşık 10-15 sent. Kanal dersleri yeni sonuçlar geldikçe tek bir istekle güncellenir (birkaç sent).
 - **YouTube:** Ücretsiz. Günlük API kotasının çok küçük bir kısmı kullanılır: kapak yüklemesi 50, sonuç kontrolü 1 birim (günlük kota 10.000).
@@ -106,6 +127,8 @@ Gerçek bir kişinin sesini taklit eden bir ElevenLabs sesi kullanıyorsan Ayarl
 ## İlk gerçek denemede kontrol edilecekler
 
 Bu noktalar sahte servislerle test edildi; gerçek hesaplarla ilk denemede bakılmalı:
+- **Klip ajanı doğru anları seçiyor mu?** İlk maçta Klipler’deki anları kendin de izle; Claude’un gerekçesi kartta yazar. Seçim istediğin gibi değilse Ayarlar → Klip ajanı’ndaki talimatı netleştir (“sadece goller”, “kenar çizgisi kavgalarını alma” gibi).
+- **Dikey görünüm:** Maç görüntüsü ortada küçük kalıyorsa Ayarlar → Video → “Yatay videoda yakınlaştırma”yı artır.
 - **OpusClip sırası = puan sırası mı?** OpusClip’in API’si puan sayısını vermiyor; klipleri arayüzdeki gibi puana göre sıralı döndürdüğünü varsayıyoruz. İlk projede Klipler’deki #1, #2… sırasını OpusClip sitesindeki puanlarla karşılaştır.
 - **OpusClip altyazısı kapalı mı geliyor?** Uygulama projeyi altyazısız istiyor. Kliplerde OpusClip’in kendi altyazısı da görünürse, OpusClip’te altyazısı kapalı bir marka şablonu oluştur ve ID’sini Ayarlar → OpusClip’e yaz.
 - **Ses ve altyazı uyumu:** İlk taslağı izle; konuşma hızı ve ses seviyeleri Ayarlar’dan değiştirilebilir.
@@ -137,12 +160,14 @@ src/
   runtime.ts           her dakikalık döngü, iş kuyruğu, otomatik taslak ve onay
   pipeline.ts          taslak hazırlama (indir → Claude → ElevenLabs → altyazı → video → kapak), ajan değerlendirmesi, yükleme ve sonuçlar
   review.ts            değerlendirme ajanları (iki turlu tartışma ve karar)
+  finder.ts            klip ajanı: Claude’un videoyu izleyip anları seçmesi
+  analyze.ts           klip ajanı için ses, döküm, kare sayfaları ve kesme
   insights.ts          YouTube sonuçlarından kanal dersleri
   opus.ts              OpusClip API istemcisi
   claude.ts            seslendirme metni (Claude API)
-  eleven.ts            ElevenLabs API istemcisi
+  eleven.ts            ElevenLabs API istemcisi (seslendirme ve döküm)
   subtitles.ts         kelime zamanlı ASS altyazı ve kapak yazısı
-  ffmpeg.ts            video birleştirme ve kapak görseli
+  ffmpeg.ts            video birleştirme, dikey düzen ve kapak görseli
   youtube.ts           Google OAuth, YouTube yükleme, kapak ve sonuçlar
   schedule.ts          yayın saatleri
   settings.ts          ayarlar ve doğrulama

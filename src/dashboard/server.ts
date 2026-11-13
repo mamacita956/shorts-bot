@@ -14,6 +14,8 @@ export interface DashboardOptions {
   openPath?: (path: string) => void;
   /** Running inside the desktop app (shows the "start with Windows" setting). */
   desktop?: boolean;
+  /** Opens the system's file picker and returns the chosen video's path; only the desktop app can. */
+  pickFile?: () => Promise<string | null>;
 }
 
 const TYPES: Record<string, string> = { '.mp4': 'video/mp4', '.mp3': 'audio/mpeg', '.jpg': 'image/jpeg' };
@@ -122,6 +124,10 @@ export function startDashboard(rt: Runtime, opts: DashboardOptions): Promise<{ p
       }
       return { ok: true };
     }
+    if (path === '/api/pick-file') {
+      if (!opts.pickFile) throw new Error('Dosya seçme penceresi sadece masaüstü uygulamasında açılır; video dosyasının yolunu yaz');
+      return { path: await opts.pickFile() };
+    }
     if (path === '/api/insights/refresh') {
       if (rt.youtube.status().connected) await rt.refreshStats();
       return { insights: await rt.refreshInsights(true) };
@@ -179,7 +185,7 @@ export function startDashboard(rt: Runtime, opts: DashboardOptions): Promise<{ p
         return res.end(readFileSync(opts.htmlPath));
       }
 
-      if (url.pathname === '/api/status') return json(res, 200, rt.status());
+      if (url.pathname === '/api/status') return json(res, 200, { ...rt.status(), desktop: Boolean(opts.desktop) });
       if (url.pathname === '/api/settings') return json(res, 200, { ...rt.settingsView(), desktop: Boolean(opts.desktop) });
       if (url.pathname === '/api/options') {
         return json(res, 200, {

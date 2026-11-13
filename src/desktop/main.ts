@@ -106,6 +106,18 @@ async function start() {
       port: 0,
       htmlPath: dashboardHtml(app.getAppPath()),
       openPath: (p) => void shell.openPath(p),
+      pickFile: async () => {
+        const opts: Electron.OpenDialogOptions = {
+          title: 'Claude’un izleyeceği video dosyasını seç',
+          properties: ['openFile'],
+          filters: [
+            { name: 'Video', extensions: ['mp4', 'm4v', 'mov', 'mkv', 'avi', 'webm', 'ts', 'mts', 'm2ts', 'wmv', 'flv', 'mpg', 'mpeg'] },
+            { name: 'Tüm dosyalar', extensions: ['*'] },
+          ],
+        };
+        const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+        return r.canceled ? null : (r.filePaths[0] ?? null);
+      },
       desktop: true,
     });
     shutdown = () => {

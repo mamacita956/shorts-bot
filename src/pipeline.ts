@@ -3,7 +3,9 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { ScriptWriter } from './claude';
 import { ElevenClient, type Alignment } from './eleven';
-import { extractFrames, frameTimes, outputSeconds, probe, renderCover, renderShort } from './ffmpeg';
+import { cutClip } from './analyze';
+import { extractFrames, frameTimes, isLandscape, outputSeconds, probe, renderCover, renderShort } from './ffmpeg';
+import { findClips } from './finder';
 import { download } from './http';
 import { firstSentence, type Result } from './insights';
 import { log } from './log';
@@ -11,8 +13,8 @@ import { OpusClient } from './opus';
 import { safeName, type Paths } from './paths';
 import { ReviewPanel, type Review } from './review';
 import { nextSlot } from './schedule';
-import type { Settings } from './settings';
-import type { Clip, Draft, Store } from './store';
+import { CLIP_BUCKETS, type Settings } from './settings';
+import type { Clip, Draft, Source, Store } from './store';
 import { buildAss, buildCoverAss, wordsFromAlignment } from './subtitles';
 import type { YouTube } from './youtube';
 
@@ -46,10 +48,19 @@ function pickMusic(dir: string): string | undefined {
   return files.length ? join(dir, files[Math.floor(Math.random() * files.length)]) : undefined;
 }
 
-/** Downloads the clip once; if the stored link has expired, asks OpusClip for fresh links and tries again. */
+/**
+ * Makes sure the clip is on disk. Clips from a video file are cut from it again; OpusClip clips are downloaded, and if
+ * the stored link has expired, OpusClip is asked for fresh links.
+ */
 async function ensureClip(ctx: Ctx, clip: Clip): Promise<string> {
   const file = clipFile(ctx, clip);
   if (existsSync(file) && statSync(file).size > 0) return file;
+  const src = ctx.store.data.sources.find((x) => x.id === clip.sourceId);
+  if (src?.kind === 'file') {
+    if (!src.file || !existsSync(src.file)) throw new Error(`Klibin alındığı video dosyası bulunamadı: ${src.file ?? ''}`);
+    await cutClip(src.file, clip.startSec ?? 0, clip.endSec ?? clip.durationMs / 1000, file);
+    return file;
+  }
   const tryUrls = async () => {
     let last: unknown;
     for (const url of [clip.exportUrl, clip.previewUrl].filter(Boolean)) {
@@ -145,6 +156,7 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
       position: s.captionPosition,
       highlight: s.highlightColor,
       locale: s.language,
+      landscape: isLandscape(info),
     }),
   );
   await rm(join(dir, 'final.tmp.mp4'), { force: true });
@@ -161,6 +173,8 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
     originalVolume: s.originalVolume / 100,
     musicVolume: s.musicVolume / 100,
     out: 'final.tmp.mp4',
+    landscape: isLandscape(info),
+    zoom: s.landscapeZoom,
   });
   // Renamed only when complete, so the panel never plays a half-written file.
   await rename(join(dir, 'final.tmp.mp4'), join(dir, 'final.mp4'));
@@ -186,9 +200,90 @@ export async function renderCoverFor(ctx: Ctx, d: Draft, clipSeconds = d.clipSec
   const s = ctx.settings();
   const dir = draftDir(ctx, d);
   const clipPath = await ensureClip(ctx, ctx.store.clip(d.clipKey));
+  const info = await probe(clipPath);
   await writeFile(join(dir, 'cover.ass'), buildCoverAss(d.coverText || d.hook, s.highlightColor, s.language));
-  await renderCover({ cwd: dir, clip: clipPath, at: d.coverAt ?? clipSeconds * 0.3, subs: 'cover.ass', fontsDir: ctx.paths.fontsDir, out: 'cover.tmp.jpg' });
+  await renderCover({
+    cwd: dir,
+    clip: clipPath,
+    at: d.coverAt ?? clipSeconds * 0.3,
+    subs: 'cover.ass',
+    fontsDir: ctx.paths.fontsDir,
+    out: 'cover.tmp.jpg',
+    landscape: isLandscape(info),
+    zoom: s.landscapeZoom,
+  });
   await rename(join(dir, 'cover.tmp.jpg'), join(dir, 'cover.jpg'));
+}
+
+/** Shortest and longest clip the settings allow (OpusClip's duration buckets, used by the clip agent too). */
+export function clipLengths(s: Settings): [number, number] {
+  const spans = s.opusClipBuckets.map((b) => CLIP_BUCKETS[b]).filter(Boolean);
+  const min = Math.max(10, Math.min(...spans.map((x) => x[0])));
+  const max = Math.max(min + 10, ...spans.map((x) => x[1]));
+  return [min, Math.min(max, 180)];
+}
+
+/**
+ * The clip agent's whole job for a video file: Claude watches it and picks the moments, then each one is cut out.
+ * Returns the clips, best first, ready to be stored.
+ */
+export async function analyseSource(ctx: Ctx, src: Source, step: (text: string) => void): Promise<Clip[]> {
+  const s = ctx.settings();
+  if (!s.anthropicApiKey) throw new Error('Claude API anahtarı yok (Ayarlar → Claude)');
+  if (!s.elevenApiKey) throw new Error('ElevenLabs API anahtarı yok (Ayarlar → ElevenLabs); konuşmaları yazıya dökmek için gerekli');
+  if (!src.file || !existsSync(src.file)) throw new Error(`Video dosyası bulunamadı: ${src.file ?? ''}`);
+  const [minSeconds, maxSeconds] = clipLengths(s);
+  const work = join(ctx.paths.home, 'media', 'analysis', src.id);
+  const found = await findClips({
+    file: src.file,
+    dir: work,
+    fontFile: join(ctx.paths.fontsDir, 'Montserrat-ExtraBold.ttf'),
+    claude: { apiKey: s.anthropicApiKey, model: s.claudeModel, baseURL: ctx.endpoints.claude },
+    eleven: { apiKey: s.elevenApiKey, base: ctx.endpoints.eleven },
+    brief: {
+      language: s.language,
+      style: s.channelStyle,
+      wishes: s.clipWishes,
+      note: src.note,
+      lessons: ctx.store.data.insights?.lessons ?? [],
+      minSeconds,
+      maxSeconds,
+    },
+    count: s.opusTopN + 2,
+    step,
+  });
+  if (!found.picks.length) throw new Error('Claude bu videoda kısa video olacak bir an bulamadı');
+  const clips: Clip[] = [];
+  for (const [i, p] of found.picks.entries()) {
+    step(`Klipler kesiliyor (${i + 1}/${found.picks.length})`);
+    const clip: Clip = {
+      key: `${src.id}.m${i + 1}`,
+      sourceId: src.id,
+      projectId: '',
+      curationId: `m${i + 1}`,
+      rank: i + 1,
+      title: p.title,
+      description: p.reason,
+      hashtags: '',
+      text: found.words.filter((w) => !w.event && w.start >= p.start && w.start < p.end).map((w) => w.text).join(' '),
+      durationMs: Math.round((p.end - p.start) * 1000),
+      keywords: [],
+      previewUrl: '',
+      exportUrl: '',
+      status: 'new',
+      createdAt: new Date().toISOString(),
+      score: p.score,
+      startSec: p.start,
+      endSec: p.end,
+    };
+    await cutClip(src.file, p.start, p.end, clipFile(ctx, clip));
+    clips.push(clip);
+  }
+  // The audio and the stills are only needed while Claude watches; keep what it decided, for reference.
+  await writeFile(join(work, 'result.json'), JSON.stringify({ language: found.language, candidates: found.candidates, picks: found.picks }, null, 2));
+  for (const f of ['audio.mp3', 'loud.txt', 'font.ttf']) await rm(join(work, f), { force: true });
+  for (const d of ['overview', 'windows']) await rm(join(work, d), { recursive: true, force: true });
+  return clips;
 }
 
 /** Published shorts with their latest numbers, newest first. */

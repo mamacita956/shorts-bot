@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { HttpError, sendJson } from './http';
 
 export interface Alignment {
@@ -12,6 +14,14 @@ export interface Voice {
   category: string;
   labels: Record<string, string>;
   previewUrl: string;
+}
+
+/** A word, or a tagged sound such as (cheering), with its time in the audio. */
+export interface Heard {
+  text: string;
+  start: number;
+  end: number;
+  event: boolean;
 }
 
 export interface SpeakOptions {
@@ -29,7 +39,7 @@ export class ElevenClient {
     private readonly base = 'https://api.elevenlabs.io',
   ) {}
 
-  private async call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async call<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
     try {
       return await sendJson<T>('ElevenLabs', `${this.base}${path}`, {
         timeoutMs: 180_000,
@@ -59,6 +69,25 @@ export class ElevenClient {
     const alignment = r.alignment ?? r.normalized_alignment;
     if (!r.audio_base64 || !alignment?.characters?.length) throw new Error('ElevenLabs ses ya da zamanlama bilgisi döndürmedi');
     return { audio: Buffer.from(r.audio_base64, 'base64'), alignment };
+  }
+
+  /** Word-timed transcript of an audio file (Scribe), with sounds like cheering tagged. The language is detected. */
+  async transcribe(file: string, model = 'scribe_v3'): Promise<{ language: string; words: Heard[] }> {
+    const form = new FormData();
+    form.append('model_id', model);
+    form.append('tag_audio_events', 'true');
+    form.append('timestamps_granularity', 'word');
+    form.append('file', new Blob([await readFile(file)], { type: 'audio/mpeg' }), basename(file));
+    const r = await this.call<{ language_code?: string; words?: { text?: string; type?: string; start?: number | null; end?: number | null }[] }>(
+      '/v1/speech-to-text',
+      { method: 'POST', body: form, timeoutMs: 30 * 60_000 },
+    );
+    const words: Heard[] = [];
+    for (const w of r.words ?? []) {
+      if (w.type === 'spacing' || !w.text?.trim() || w.start == null) continue;
+      words.push({ text: w.text.trim(), start: w.start, end: w.end ?? w.start, event: w.type === 'audio_event' });
+    }
+    return { language: r.language_code ?? '', words };
   }
 
   async check(): Promise<void> {

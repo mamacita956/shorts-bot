@@ -113,3 +113,61 @@ test('the opening sentence of a narration is what the lessons compare', () => {
   assert.equal(firstSentence('Noktasız tek cümle'), 'Noktasız tek cümle');
   assert.equal(firstSentence('3.5 milyon euro... Ama değer mi?'), '3.5 milyon euro...');
 });
+
+test('clip agent helpers: loudness scale, peaks, transcript lines, windows and tidy picks', async () => {
+  const { levels, loudPeaks, transcriptLines, tidyPicks, windowFor } = await import('../src/finder');
+  const { clock, parseLoudness, overviewInterval } = await import('../src/analyze');
+  const { clipLengths } = await import('../src/pipeline');
+
+  assert.equal(clock(0), '0:00');
+  assert.equal(clock(5531.9), '92:11', 'minutes run past 60, like the stamps on the stills');
+  assert.deepEqual(parseLoudness('frame:0 pts:0 pts_time:0\nlavfi.astats.Overall.RMS_level=-30.5\nframe:1 pts:16000 pts_time:1\nlavfi.astats.Overall.RMS_level=-inf\n'), [-30.5, -90]);
+  assert.equal(overviewInterval(40), 2);
+  assert.equal(overviewInterval(90 * 60), 5, 'a full match fits in 60 sheets of 20');
+
+  const quiet = Array.from({ length: 120 }, () => -40);
+  for (let i = 60; i < 66; i++) quiet[i] = -15;
+  const lv = levels(quiet);
+  assert.equal(lv[10], 0);
+  assert.equal(lv[62], 9);
+  assert.deepEqual(loudPeaks(quiet).map((p) => p.at), [62]);
+
+  const words = [
+    { text: 'Top', start: 1, end: 1.3, event: false },
+    { text: 'geldi.', start: 1.4, end: 2, event: false },
+    { text: 'GOL!', start: 9, end: 10, event: false },
+    { text: '(cheering)', start: 9.5, end: 12, event: true },
+  ];
+  assert.equal(transcriptLines(words), '[0:01] Top geldi.\n[0:09] GOL! (cheering)');
+  assert.equal(transcriptLines(words, 5, 20), '[0:09] GOL! (cheering)');
+
+  assert.deepEqual(windowFor({ start: 100, end: 120, title: '', why: '' }, 3000), [92, 128]);
+  assert.deepEqual(windowFor({ start: 0, end: 600, title: '', why: '' }, 3000), [225, 375], 'a too-wide range is narrowed around its middle');
+
+  const cands = [{ start: 0, end: 0, title: 'Aday', why: '' }];
+  const picks = tidyPicks(
+    [
+      { candidate: 1, start: 50, end: 200, score: 70.4, title: ' Uzun ', reason: 'r' },
+      { candidate: 1, start: 55, end: 70, score: 90, title: 'Aynı an', reason: 'r' },
+      { candidate: 1, start: 300, end: 302, score: 60, title: '', reason: 'r' },
+      { candidate: 1, start: 990, end: 1010, score: 140, title: 'Sona taşan', reason: 'r' },
+    ],
+    cands,
+    1000,
+    10,
+    60,
+    5,
+  );
+  assert.deepEqual(
+    picks.map((p) => [p.start, p.end, p.score, p.title]),
+    [
+      [990, 1000, 100, 'Sona taşan'],
+      [55, 70, 90, 'Aynı an'],
+      [296, 306, 60, 'Aday'],
+    ],
+    'clamped to the video, padded to the minimum, overlapping duplicate dropped, score capped',
+  );
+
+  assert.deepEqual(clipLengths({ ...DEFAULTS, opusClipBuckets: ['0-30', '30-60'] }), [10, 60]);
+  assert.deepEqual(clipLengths({ ...DEFAULTS, opusClipBuckets: ['60-90'] }), [60, 90]);
+});

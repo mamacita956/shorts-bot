@@ -97,12 +97,14 @@ export interface AssOptions {
   highlight: string;
   /** BCP 47 locale for upper-casing (Turkish needs its own i/İ rules). */
   locale: string;
+  /** Landscape footage sits in the middle of the frame, so "lower" captions go a bit lower, under the picture. */
+  landscape?: boolean;
 }
 
 export function buildAss(o: AssOptions): string {
   const upper = (s: string) => s.toLocaleUpperCase(o.locale);
   const hl = bgr(o.highlight);
-  const [align, marginV] = o.position === 'middle' ? [5, 0] : [2, 560];
+  const [align, marginV] = o.position === 'middle' ? [5, 0] : [2, o.landscape ? 400 : 560];
   const out = [
     '[Script Info]',
     'ScriptType: v4.00+',

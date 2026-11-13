@@ -55,7 +55,8 @@ test('panel loads and reports what is missing from the setup', async () => {
   assert.match(page.body, /Shorts Bot/);
   assert.match(String(page.headers['content-security-policy']), /media-src 'self' https:/);
   const s = JSON.parse((await call('/api/status')).body);
-  assert.deepEqual(s.setup.map((x: { section: string }) => x.section), ['opus', 'claude', 'eleven', 'youtube']);
+  // OpusClip is optional: video files go to the clip agent, and the key is only asked for once a link is added.
+  assert.deepEqual(s.setup.map((x: { section: string }) => x.section), ['claude', 'eleven', 'youtube']);
 });
 
 test('only this local panel may change anything', async () => {

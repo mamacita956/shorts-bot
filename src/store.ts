@@ -5,6 +5,8 @@ import type { Insights } from './insights';
 import type { Review } from './review';
 
 export type SourceStage = 'submitting' | 'processing' | 'complete' | 'failed';
+/** opus: a link that OpusClip clips · file: a video on this computer that the clip agent (Claude) watches. */
+export type SourceKind = 'opus' | 'file';
 
 export interface Source {
   id: string;
@@ -21,6 +23,12 @@ export interface Source {
   error?: string;
   clipCount?: number;
   nextCheckAt?: string;
+  /** Missing on sources added before the clip agent existed: those are OpusClip links. */
+  kind?: SourceKind;
+  /** Full path of the video file (file sources). */
+  file?: string;
+  /** What the clip agent is doing right now. */
+  step?: string;
 }
 
 export type ClipStatus = 'new' | 'drafted' | 'skipped';
@@ -43,6 +51,11 @@ export interface Clip {
   exportUrl: string;
   status: ClipStatus;
   createdAt: string;
+  /** The clip agent's score, 0-100 (clips from video files). */
+  score?: number;
+  /** Where the clip sits in its source video, in seconds (clips from video files). */
+  startSec?: number;
+  endSec?: number;
 }
 
 export type DraftStatus = 'queued' | 'preparing' | 'reviewing' | 'ready' | 'failed' | 'approved' | 'uploading' | 'scheduled' | 'rejected';
