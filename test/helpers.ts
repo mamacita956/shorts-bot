@@ -69,7 +69,11 @@ export const SCRIPT = {
   title: 'Sezonun golü bu mu? ⚽',
   description: 'Bu pozisyonu kaçırmayın. #futbol #gol #shorts',
   tags: ['futbol', 'gol', 'süper lig', '#derbi'],
+  coverText: 'istanbul sallandı',
+  coverFrame: 2,
 };
+
+export const LESSONS = ['Soruyla başlayan girişler daha çok izlendi.', 'Ajan puanı 8 ve üstü olan videolar 48 saatte daha iyi gitti.'];
 
 export interface Opinion {
   score: number;
@@ -90,13 +94,26 @@ export interface Recorded {
   uploadHeaders: IncomingMessage['headers'][];
   uploaded: Buffer[];
   tokenRequests: URLSearchParams[];
+  /** Requests that asked Claude for channel lessons. */
+  lessons: Record<string, unknown>[];
+  thumbnails: { videoId: string; type: string; body: Buffer }[];
+  videoLookups: string[];
 }
 
 /** Fake OpusClip, ElevenLabs, Claude and Google endpoints backed by real media files. */
 export async function startFakes(dir: string, clipSeconds = 6) {
   const clip = join(dir, 'source-clip.mp4');
   await makeClip(clip, clipSeconds);
-  const rec: Recorded = { opusCreate: [], claude: [], reviews: [], claudeHeaders: [], eleven: [], uploadInit: [], uploadHeaders: [], uploaded: [], tokenRequests: [] };
+  const rec: Recorded = {
+    opusCreate: [], claude: [], reviews: [], claudeHeaders: [], eleven: [], uploadInit: [], uploadHeaders: [], uploaded: [], tokenRequests: [],
+    lessons: [], thumbnails: [], videoLookups: [],
+  };
+  // What the fake YouTube reports about uploaded videos; the test can change it.
+  const yt = {
+    processing: 'succeeded',
+    thumbnailStatus: 200,
+    videos: new Map<string, { views: number; likes: number; comments: number; uploadStatus: string; privacy: string; rejectionReason?: string }>(),
+  };
   // What each reviewer answers; the test can swap it. The argument counts review requests so far (0-based).
   const panel = { opinion: (_n: number): Opinion => ({ score: 8, verdict: 'approve', comment: 'İyi bir video.', fix: '' }) };
   let projectChecks = 0;
@@ -148,11 +165,14 @@ export async function startFakes(dir: string, clipSeconds = 6) {
     if (req.method !== 'POST' || !req.url?.startsWith('/v1/messages')) return sendJson(res, 404, { type: 'error', error: { type: 'not_found_error', message: 'nope' } });
     const b = JSON.parse(body.toString());
     rec.claudeHeaders.push(req.headers);
-    const isReview = Boolean(b.output_config?.format?.schema?.properties?.verdict);
+    const props = b.output_config?.format?.schema?.properties ?? {};
     let answer: unknown = SCRIPT;
-    if (isReview) {
+    if (props.verdict) {
       answer = panel.opinion(rec.reviews.length);
       rec.reviews.push(b);
+    } else if (props.lessons) {
+      answer = { lessons: LESSONS };
+      rec.lessons.push(b);
     } else {
       rec.claude.push(b);
     }
@@ -174,6 +194,28 @@ export async function startFakes(dir: string, clipSeconds = 6) {
       return sendJson(res, 200, { access_token: 'AT2', expires_in: 3600 });
     }
     if (url.pathname === '/youtube/v3/channels') return sendJson(res, 200, { items: [{ id: 'UC1', snippet: { title: 'Test Kanal' } }] });
+    if (req.method === 'GET' && url.pathname === '/youtube/v3/videos') {
+      if (req.headers.authorization !== 'Bearer AT1' && req.headers.authorization !== 'Bearer AT2') return sendJson(res, 401, { error: { message: 'no token' } });
+      const ids = (url.searchParams.get('id') ?? '').split(',');
+      const part = url.searchParams.get('part') ?? '';
+      rec.videoLookups.push(part);
+      if (part === 'processingDetails') return sendJson(res, 200, { items: ids.map((id) => ({ id, processingDetails: { processingStatus: yt.processing } })) });
+      const items = ids.flatMap((id) => {
+        const v = yt.videos.get(id);
+        if (!v) return [];
+        return [{
+          id,
+          statistics: { viewCount: String(v.views), likeCount: String(v.likes), commentCount: String(v.comments) },
+          status: { uploadStatus: v.uploadStatus, privacyStatus: v.privacy, ...(v.rejectionReason ? { rejectionReason: v.rejectionReason } : {}) },
+        }];
+      });
+      return sendJson(res, 200, { items });
+    }
+    if (req.method === 'POST' && url.pathname === '/upload/youtube/v3/thumbnails/set') {
+      if (yt.thumbnailStatus !== 200) return sendJson(res, yt.thumbnailStatus, { error: { code: yt.thumbnailStatus, message: 'The authenticated user doesnt have permissions to upload and set custom video thumbnails.' } });
+      rec.thumbnails.push({ videoId: url.searchParams.get('videoId') ?? '', type: String(req.headers['content-type']), body });
+      return sendJson(res, 200, { items: [{ default: { url: 'https://i.ytimg.com/vi/x/default.jpg' } }] });
+    }
     if (req.method === 'POST' && url.pathname === '/upload/youtube/v3/videos') {
       rec.uploadInit.push(JSON.parse(body.toString()));
       rec.uploadHeaders.push(req.headers);
@@ -196,7 +238,7 @@ export async function startFakes(dir: string, clipSeconds = 6) {
       }
       received = Buffer.concat([received, body]);
       rec.uploaded.push(received);
-      return sendJson(res, 200, { id: 'VID1', status: { privacyStatus: 'private' } });
+      return sendJson(res, 200, { id: `VID${rec.uploaded.length}`, status: { privacyStatus: 'private' } });
     }
     sendJson(res, 404, { error: { message: 'not found' } });
   });
@@ -204,6 +246,7 @@ export async function startFakes(dir: string, clipSeconds = 6) {
   return {
     rec,
     panel,
+    yt,
     clip,
     endpoints: { opus: opus.url, eleven: eleven.url, claude: claude.url },
     google: { auth: `${google.url}/auth`, token: `${google.url}/token`, api: `${google.url}/youtube/v3`, upload: `${google.url}/upload/youtube/v3` },

@@ -287,4 +287,82 @@ export class YouTube {
     if (e.status === 403 && /forbidden|insufficientPermissions/.test(e.body)) return new Error(`YouTube izin vermedi: ${e.message}`);
     return e;
   }
+
+  private async authed<T>(url: string, init: RequestInit = {}): Promise<T> {
+    const call = (token: string) =>
+      sendJson<T>('YouTube', url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${token}` } });
+    try {
+      return await call(await this.accessToken());
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 401) return call(await this.accessToken(true));
+      throw e;
+    }
+  }
+
+  /** "processing", "succeeded", "failed" or "terminated"; a Short's custom thumbnail must wait for "succeeded". */
+  async processingStatus(videoId: string): Promise<string> {
+    const r = await this.authed<{ items?: { processingDetails?: { processingStatus?: string } }[] }>(
+      `${this.ep.api}/videos?part=processingDetails&id=${encodeURIComponent(videoId)}`,
+    );
+    const item = r.items?.[0];
+    if (!item) throw new Error('Video YouTube’da bulunamadı (silinmiş olabilir)');
+    return item.processingDetails?.processingStatus ?? 'processing';
+  }
+
+  async setThumbnail(videoId: string, file: string): Promise<void> {
+    const data = await readFile(file);
+    try {
+      await this.authed(`${this.ep.upload}/thumbnails/set?videoId=${encodeURIComponent(videoId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: data,
+      });
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 403) {
+        throw new ThumbnailForbiddenError(
+          'YouTube özel kapak yüklemeye izin vermedi. Kanalının telefonla doğrulanmış olması gerekiyor: youtube.com/verify',
+        );
+      }
+      throw this.explain(e);
+    }
+  }
+
+  /** Public counts and state of up to 50 videos per call (1 quota unit). */
+  async videoStats(ids: string[]): Promise<Map<string, VideoStats>> {
+    const out = new Map<string, VideoStats>();
+    for (let i = 0; i < ids.length; i += 50) {
+      const chunk = ids.slice(i, i + 50);
+      const r = await this.authed<{
+        items?: {
+          id: string;
+          statistics?: { viewCount?: string; likeCount?: string; commentCount?: string };
+          status?: { uploadStatus?: string; privacyStatus?: string; rejectionReason?: string; failureReason?: string };
+        }[];
+      }>(`${this.ep.api}/videos?part=statistics,status&id=${chunk.map(encodeURIComponent).join(',')}`);
+      for (const it of r.items ?? []) {
+        out.set(it.id, {
+          views: Number(it.statistics?.viewCount ?? 0),
+          likes: Number(it.statistics?.likeCount ?? 0),
+          comments: Number(it.statistics?.commentCount ?? 0),
+          uploadStatus: it.status?.uploadStatus ?? '',
+          privacy: it.status?.privacyStatus ?? '',
+          problem: it.status?.rejectionReason ?? it.status?.failureReason ?? '',
+        });
+      }
+    }
+    return out;
+  }
 }
+
+export interface VideoStats {
+  views: number;
+  likes: number;
+  comments: number;
+  uploadStatus: string;
+  privacy: string;
+  /** YouTube's rejection or failure reason, if any. */
+  problem: string;
+}
+
+/** The channel may not set custom thumbnails (usually: not phone-verified); retrying will not help. */
+export class ThumbnailForbiddenError extends Error {}

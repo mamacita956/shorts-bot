@@ -3,8 +3,9 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { ScriptWriter } from './claude';
 import { ElevenClient, type Alignment } from './eleven';
-import { extractFrames, outputSeconds, probe, renderShort } from './ffmpeg';
+import { extractFrames, frameTimes, outputSeconds, probe, renderCover, renderShort } from './ffmpeg';
 import { download } from './http';
+import { firstSentence, type Result } from './insights';
 import { log } from './log';
 import { OpusClient } from './opus';
 import { safeName, type Paths } from './paths';
@@ -12,7 +13,7 @@ import { ReviewPanel, type Review } from './review';
 import { nextSlot } from './schedule';
 import type { Settings } from './settings';
 import type { Clip, Draft, Store } from './store';
-import { buildAss, wordsFromAlignment } from './subtitles';
+import { buildAss, buildCoverAss, wordsFromAlignment } from './subtitles';
 import type { YouTube } from './youtube';
 
 export interface Endpoints {
@@ -90,6 +91,7 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
     if (!s.anthropicApiKey) throw new Error('Claude API anahtarı yok (Ayarlar → Claude)');
     step('Claude metni yazıyor');
     const frames = await extractFrames(clipPath, join(dir, 'frames'), 4, info.duration);
+    const memory = channelMemory(ctx);
     const script = await new ScriptWriter(s.anthropicApiKey, s.claudeModel, ctx.endpoints.claude).write({
       language: s.language,
       style: s.channelStyle,
@@ -99,9 +101,12 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
       instructions: d.instructions,
       previous: d.mode === 'rewrite' && d.narration ? { hook: d.hook, narration: d.narration } : undefined,
       feedback: d.mode === 'rewrite' && d.review?.verdict === 'reject' ? d.review.feedback : undefined,
+      lessons: memory.lessons,
+      examples: memory.examples,
       frames: await Promise.all(frames.map((f) => readFile(f))),
     });
-    ctx.store.updateDraft(d, script);
+    const { coverFrame, ...text } = script;
+    ctx.store.updateDraft(d, { ...text, coverAt: frameTimes(info.duration, frames.length)[coverFrame - 1] });
   }
 
   const voicePath = join(dir, 'voice.mp3');
@@ -160,14 +165,81 @@ export async function prepareDraft(ctx: Ctx, d: Draft): Promise<void> {
   // Renamed only when complete, so the panel never plays a half-written file.
   await rename(join(dir, 'final.tmp.mp4'), join(dir, 'final.mp4'));
   const out = await probe(join(dir, 'final.mp4'));
+
+  if (s.coverEnabled) {
+    step('Kapak hazırlanıyor');
+    await renderCoverFor(ctx, d, info.duration);
+  }
   ctx.store.updateDraft(d, {
     status: 'ready',
     step: undefined,
     hasVideo: true,
+    hasCover: s.coverEnabled,
     clipSeconds: info.duration,
     voiceSeconds,
     videoSeconds: out.duration,
   });
+}
+
+/** The cover: a clean frame of the clip (no captions) with the cover text. Also redrawn alone when only that text is edited. */
+export async function renderCoverFor(ctx: Ctx, d: Draft, clipSeconds = d.clipSeconds ?? 0): Promise<void> {
+  const s = ctx.settings();
+  const dir = draftDir(ctx, d);
+  const clipPath = await ensureClip(ctx, ctx.store.clip(d.clipKey));
+  await writeFile(join(dir, 'cover.ass'), buildCoverAss(d.coverText || d.hook, s.highlightColor, s.language));
+  await renderCover({ cwd: dir, clip: clipPath, at: d.coverAt ?? clipSeconds * 0.3, subs: 'cover.ass', fontsDir: ctx.paths.fontsDir, out: 'cover.tmp.jpg' });
+  await rename(join(dir, 'cover.tmp.jpg'), join(dir, 'cover.jpg'));
+}
+
+/** Published shorts with their latest numbers, newest first. */
+export function results(ctx: Ctx, now = Date.now()): (Result & { draftId: string; youtubeId: string })[] {
+  const ranks = new Map(ctx.store.data.clips.map((c) => [c.key, c.rank]));
+  return ctx.store.data.drafts
+    .filter((d) => d.youtubeId && d.slot && d.stats && Date.parse(d.slot) <= now)
+    .map((d) => ({
+      draftId: d.id,
+      youtubeId: d.youtubeId as string,
+      title: d.title,
+      hook: d.hook,
+      opening: firstSentence(d.narration),
+      seconds: d.videoSeconds ?? 0,
+      opusRank: ranks.get(d.clipKey) ?? 0,
+      panelScore: d.review?.score,
+      views: d.stats?.views ?? 0,
+      likes: d.stats?.likes ?? 0,
+      comments: d.stats?.comments ?? 0,
+      hoursLive: (now - Date.parse(d.slot as string)) / 3_600_000,
+      earlyViews: d.early?.views,
+      publishedAt: d.slot as string,
+    }))
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+}
+
+/** What the channel has learned so far, for the script writer and the review panel. */
+export function channelMemory(ctx: Ctx) {
+  const rows = results(ctx);
+  const best = rows
+    .filter((r) => r.hoursLive >= 24)
+    .sort((a, b) => (b.earlyViews ?? b.views) - (a.earlyViews ?? a.views))
+    .slice(0, 3);
+  return {
+    lessons: ctx.store.data.insights?.lessons ?? [],
+    // A single result says little; examples and the track record start with a few.
+    examples: rows.length >= 3 ? best.map((r) => ({ hook: r.hook, opening: r.opening, views: r.earlyViews ?? r.views })) : [],
+    track:
+      rows.length >= 2
+        ? rows.slice(0, 8).map((r) => ({ title: r.title, panelScore: r.panelScore, views: r.views, earlyViews: r.earlyViews, hoursLive: r.hoursLive }))
+        : [],
+  };
+}
+
+/** Sets the cover on YouTube once the video has finished processing; false means "not yet, try later". */
+export async function setThumbnailFor(ctx: Ctx, d: Draft): Promise<boolean> {
+  const state = await ctx.youtube.processingStatus(d.youtubeId as string);
+  if (state === 'failed' || state === 'terminated') throw new Error('YouTube videoyu işleyemedi; kapak yüklenmedi');
+  if (state !== 'succeeded') return false;
+  await ctx.youtube.setThumbnail(d.youtubeId as string, join(draftDir(ctx, d), 'cover.jpg'));
+  return true;
 }
 
 /** The review panel looks at the finished video as viewers will see it: stills with the headline and captions burned in. */
@@ -180,15 +252,18 @@ export async function reviewDraft(ctx: Ctx, d: Draft): Promise<Review> {
   const frames = await extractFrames(video, join(dir, 'review'), 4, info.duration);
   const clip = ctx.store.clip(d.clipKey);
   const source = ctx.store.data.sources.find((x) => x.id === clip.sourceId);
+  const memory = channelMemory(ctx);
   return new ReviewPanel(s.anthropicApiKey, s.claudeModel, ctx.endpoints.claude).review({
     language: s.language,
     style: s.channelStyle,
     frames: await Promise.all(frames.map((f) => readFile(f))),
-    draft: { hook: d.hook, narration: d.narration, title: d.title, description: d.description, tags: d.tags },
+    draft: { hook: d.hook, narration: d.narration, title: d.title, description: d.description, tags: d.tags, coverText: d.hasCover ? d.coverText : undefined },
     clip: { rank: clip.rank, seconds: clip.durationMs / 1000, text: clip.text },
     videoSeconds: info.duration,
     sourceNote: source?.note ?? '',
     minScore: s.reviewMinScore,
+    lessons: memory.lessons,
+    track: memory.track,
   });
 }
 

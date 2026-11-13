@@ -160,6 +160,14 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 .review h4 { margin: 12px 0 2px; font-size: 12px; font-weight: 650; color: var(--text-muted); }
 .op { border-top: 1px solid var(--grid); padding: 8px 0 2px; display: grid; gap: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .op-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cover-row { display: flex; gap: 12px; align-items: flex-start; }
+.cover-row a.cover-link { flex: 0 0 45%; display: block; }
+.cover { display: block; width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 8px; background: #000; }
+.cover-row .sub { font-size: 12px; line-height: 1.45; }
+.media-col { display: grid; gap: 12px; align-content: start; }
+th.r, td.r { text-align: right; }
+td.nowrap { white-space: nowrap; }
+.lessons { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .src-list { display: grid; gap: 10px; }
 .src { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; display: grid; gap: 6px; }
 .src-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -189,6 +197,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   <button role="tab" data-tab="clips" aria-selected="false">Klipler<span class="count" id="clipCount" hidden></span></button>
   <button role="tab" data-tab="drafts" aria-selected="false">Taslaklar<span class="count" id="draftCount" hidden></span></button>
   <button role="tab" data-tab="schedule" aria-selected="false">Takvim</button>
+  <button role="tab" data-tab="results" aria-selected="false">Sonuçlar</button>
   <button role="tab" data-tab="logs" aria-selected="false">Log</button>
   <button role="tab" data-tab="settings" aria-selected="false">Ayarlar</button>
 </nav>
@@ -209,9 +218,10 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       <h2>Nasıl çalışır</h2>
       <ol class="steps">
         <li><b>Kaynaklar</b>’a video bağlantısını ekle. OpusClip videodan klipleri çıkarıp puana göre sıralar; en iyi <span id="topN">5</span> tanesi kullanılır.</li>
-        <li>Uygulama en iyi kliplerden taslak hazırlar: Claude klibe bakıp seslendirme metnini, başlığı ve etiketleri yazar, ElevenLabs seslendirir, kelime kelime altyazı ve üst başlık eklenir.</li>
+        <li>Uygulama en iyi kliplerden taslak hazırlar: Claude klibe bakıp seslendirme metnini, başlığı, etiketleri ve kapak yazısını yazar, ElevenLabs seslendirir, kelime kelime altyazı ve üst başlık eklenir. Klibin en çarpıcı karesinden bir de kapak görseli hazırlanır.</li>
         <li>Üç değerlendirme ajanı (İzleyici, Editör, Kanal yöneticisi) bitmiş videoyu inceleyip tartışır. Onaylarlarsa video sıradaki yayın saatine yerleşir ve YouTube’a yüklenir; reddederlerse metin onların önerileriyle yeniden yazılır, yine olmazsa karar sana kalır. Yayınlar sırayla <span id="cadence">her 2 günde bir</span> çıkar.</li>
         <li><b>Taslaklar</b>’da ajanların tartışmasını okuyabilir, metni düzeltebilir ya da istediğin videoyu kendin onaylayabilirsin.</li>
+        <li>Yayınlanan videoların izlenme, beğeni ve yorum sayıları YouTube’dan alınır. Claude bunlardan kanal için dersler çıkarır; metni yazan Claude ve ajanlar sonraki videolarda bu dersleri kullanır. Hepsi <b>Sonuçlar</b>’da.</li>
       </ol>
     </div>
   </section>
@@ -279,6 +289,20 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     </div>
   </section>
 
+  <section id="tab-results" class="tabpanel" hidden>
+    <div class="kpis" id="resKpis"></div>
+    <div class="panel">
+      <div class="panel-head"><h2>Ajanların öğrendikleri</h2><span class="sub" id="lessonsMeta"></span><span class="spacer"></span>
+        <button class="btn small secondary" id="lessonsRefresh">Şimdi güncelle</button></div>
+      <div id="lessons"></div>
+      <p class="note">Yayınlanan videoların gerçek sonuçlarından Claude bu dersleri çıkarır. Metni yazan Claude ve değerlendirme ajanları her kararda bu dersleri, en çok izlenen girişleri ve ajanların verdiği puanla gerçek izlenmenin karşılaştırmasını görür. Sonuçlar 6 saatte bir YouTube’dan alınır; dersler ilk 3 sonuçtan sonra yazılır, sonra yeni sonuç geldikçe ya da haftada bir güncellenir.</p>
+    </div>
+    <div class="panel">
+      <h2>Yayınlanan videolar</h2>
+      <div class="table-wrap" id="results"></div>
+    </div>
+  </section>
+
   <section id="tab-logs" class="tabpanel" hidden>
     <div class="panel">
       <h2>Log (en yeni üstte)</h2>
@@ -331,7 +355,9 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
         <label>Üst başlık süresi (sn, 0 = video boyunca) <input id="sHookSec" type="number" min="0" max="60" step="0.5"></label>
         <label>Altyazı konumu <select id="sCapPos"><option value="lower">Alt kısım</option><option value="middle">Orta</option></select></label>
         <label>Vurgulanan kelime rengi <input id="sHighlight" type="color"></label>
+        <label class="check wide"><input id="sCover" type="checkbox"> Her videoya kapak görseli hazırla ve YouTube’a yükle</label>
       </div>
+      <p class="note">Kapak: Claude klibin en çarpıcı karesini ve 2-4 kelimelik kapak yazısını seçer; yazı, altyazısız kareye büyük harflerle basılır. YouTube özel kapağa sadece telefonla doğrulanmış kanallarda izin verir (youtube.com/verify).</p>
       <p class="note">Müzik: aşağıdaki klasöre koyduğun mp3/m4a/wav dosyalarından her videoya rastgele biri eklenir. Klasör boşsa müzik eklenmez. Telifsiz müzik kullan (örneğin YouTube Ses Kitaplığı).
         <br><span id="musicDir" class="num"></span> <button class="btn small secondary" type="button" id="openMusic">Müzik klasörünü aç</button></p>
 
@@ -581,6 +607,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       const dis = editable ? '' : 'disabled';
       body = `<form data-id="${esc(d.id)}">
         <label>Üst başlık (videonun üstünde yazar) <input name="hook" maxlength="60" value="${esc(d.hook)}" ${dis}></label>
+        <label>Kapak yazısı <input name="coverText" maxlength="30" value="${esc(d.coverText || '')}" placeholder="2-4 kelime" ${dis}></label>
         <label><span class="lbl">Seslendirme metni <span class="counter" data-c="narration"></span></span><textarea name="narration" rows="6" ${dis}>${esc(d.narration)}</textarea></label>
         <label><span class="lbl">YouTube başlığı <span class="counter" data-c="title"></span></span><input name="title" maxlength="100" value="${esc(d.title)}" ${dis}></label>
         <label>Açıklama <textarea name="description" rows="3" ${dis}>${esc(d.description)}</textarea></label>
@@ -617,7 +644,11 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     const el = document.createElement('article');
     el.className = 'draft';
     el.dataset.id = d.id;
-    el.innerHTML = `<div class="draft-media">${media}</div>
+    const cover = d.coverSrc
+      ? `<div class="cover-row"><a class="cover-link" href="${esc(d.coverSrc)}" target="_blank" rel="noreferrer" title="Büyük aç"><img class="cover" src="${esc(d.coverSrc)}" alt="Kapak görseli"></a>
+          <div><b>Kapak</b><div class="sub">YouTube’a bu görsel kapak olarak yüklenir. Yazısını “Kapak yazısı” alanından değiştirebilirsin; kaydedince yeniden hazırlanır.</div></div></div>`
+      : '';
+    el.innerHTML = `<div class="draft-media media-col">${media}${cover}</div>
       <div class="draft-body">
         <div class="draft-head"><span class="chip ${cls}">${esc(label)}</span>${d.status === 'preparing' && d.step ? `<span class="sub">${esc(d.step)}</span>` : ''}<span class="spacer"></span><span class="sub">${info}</span></div>
         ${d.error ? `<div class="errbox">${esc(d.error)}</div>` : ''}
@@ -640,7 +671,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     c.className = `counter${clip && est > clip + 3 ? ' over' : ''}`;
     const t = el.querySelector('[data-c="title"]');
     t.textContent = `${f.title.value.length}/100`;
-    const changed = f.hook.value.trim() !== d.hook || f.narration.value.trim() !== d.narration;
+    const changed = f.hook.value.trim() !== d.hook || f.narration.value.trim() !== d.narration || f.coverText.value.trim() !== (d.coverText || '');
     const save = f.querySelector('[data-act="save"]');
     if (save) save.textContent = changed ? 'Kaydet ve videoyu yenile' : 'Kaydet';
     for (const act of ['approve', 'review']) {
@@ -683,9 +714,38 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       ? `<table><thead><tr><th>Yayın zamanı</th><th>Başlık</th><th>Durum</th><th>YouTube</th></tr></thead><tbody>${list.map((d) => {
         const [t, c] = draftLabel(d);
         const link = d.youtubeId ? `https://www.youtube.com/shorts/${encodeURIComponent(d.youtubeId)}` : '';
-        return `<tr><td class="num">${d.slot ? esc(when(d.slot)) : '—'}</td><td class="wrap">${esc(d.title)}</td><td><span class="chip ${c}">${esc(t)}</span>${d.error ? `<div class="sub err" style="margin-top:4px">${esc(d.error)}</div>` : ''}</td><td>${link ? `<a href="${esc(link)}" target="_blank" rel="noreferrer">Aç</a>` : '—'}</td></tr>`;
+        const thumb = !d.hasCover ? '' : d.thumbnailSet ? 'Kapak yüklendi' : d.thumbnailError ? `Kapak: ${d.thumbnailError}` : d.status === 'scheduled' ? 'Kapak, YouTube işlemeyi bitirince yüklenecek' : '';
+        return `<tr><td class="num">${d.slot ? esc(when(d.slot)) : '—'}</td><td class="wrap">${esc(d.title)}</td><td><span class="chip ${d.ytProblem ? 'crit' : c}">${esc(d.ytProblem ? 'Sorun var' : t)}</span>${d.error ? `<div class="sub err" style="margin-top:4px">${esc(d.error)}</div>` : ''}${d.ytProblem ? `<div class="sub err" style="margin-top:4px">${esc(d.ytProblem)}</div>` : ''}${thumb ? `<div class="sub" style="margin-top:4px">${esc(thumb)}</div>` : ''}</td><td>${link ? `<a href="${esc(link)}" target="_blank" rel="noreferrer">Aç</a>` : '—'}</td></tr>`;
       }).join('')}</tbody></table>`
       : '<div class="empty">Henüz onaylanmış video yok.</div>';
+  }
+
+  const n0 = new Intl.NumberFormat('tr-TR');
+  function renderResults(s) {
+    const rows = s.results;
+    const total = rows.reduce((n, r) => n + r.views, 0);
+    const early = rows.filter((r) => r.earlyViews != null).map((r) => r.earlyViews).sort((a, b) => a - b);
+    const median = early.length ? early[Math.floor((early.length - 1) / 2)] : null;
+    const best = [...rows].sort((a, b) => (b.earlyViews ?? b.views) - (a.earlyViews ?? a.views))[0];
+    $('resKpis').innerHTML = [
+      ['Yayınlanan video', String(rows.length), s.statsCheckedAt ? `son kontrol ${short(s.statsCheckedAt)}` : 'sonuçlar 6 saatte bir alınır'],
+      ['Toplam izlenme', n0.format(total), 'tüm videoların toplamı'],
+      ['48 saatte izlenme (ortanca)', median == null ? '—' : n0.format(median), 'videolar arası en adil karşılaştırma'],
+      ['En iyi video', best ? n0.format(best.earlyViews ?? best.views) : '—', best ? best.title : 'henüz yok'],
+    ].map(([k, v, d]) => `<div class="kpi"><div class="k">${esc(k)}</div><div class="v num">${esc(v)}</div><div class="d">${esc(d)}</div></div>`).join('');
+    const ins = s.insights;
+    $('lessonsMeta').textContent = ins ? `${ins.basedOn} videonun sonucundan · ${short(ins.at)}` : '';
+    $('lessons').innerHTML = ins && ins.lessons.length
+      ? `<ol class="lessons">${ins.lessons.map((l) => `<li>${esc(l)}</li>`).join('')}</ol>`
+      : '<div class="empty">Henüz ders yok. En az 3 video yayınlanıp sonuçları gelince ajanlar öğrenmeye başlar.</div>';
+    $('results').innerHTML = rows.length
+      ? `<table><thead><tr><th>Yayın</th><th>Başlık</th><th class="r">İzlenme</th><th class="r">48 saatte</th><th class="r">Beğeni</th><th class="r">Yorum</th><th class="r">Ajan puanı</th><th></th></tr></thead><tbody>${rows.map((r) => `<tr>
+          <td class="num nowrap">${esc(short(r.publishedAt))}</td><td class="wrap">${esc(r.title)}</td>
+          <td class="r num">${n0.format(r.views)}</td><td class="r num">${r.earlyViews == null ? '—' : n0.format(r.earlyViews)}</td>
+          <td class="r num">${n0.format(r.likes)}</td><td class="r num">${n0.format(r.comments)}</td>
+          <td class="r num">${r.panelScore == null ? '—' : String(r.panelScore).replace('.', ',')}</td>
+          <td><a href="https://www.youtube.com/shorts/${encodeURIComponent(r.youtubeId)}" target="_blank" rel="noreferrer">Aç</a></td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty">Henüz yayınlanmış video yok. Videolar yayın saatinden sonra burada sonuçlarıyla görünür.</div>';
   }
 
   function renderLogs(s) {
@@ -703,6 +763,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     if (tab === 'clips') renderClips(S);
     if (tab === 'drafts') renderDrafts(S);
     if (tab === 'schedule') renderSchedule(S);
+    if (tab === 'results') renderResults(S);
     if (tab === 'logs') renderLogs(S);
     if (tab === 'settings') renderYt(S);
   }
@@ -715,6 +776,21 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       pill($('jobPill'), 'critical', 'Uygulama servisine ulaşılamıyor');
     }
   }
+
+  $('lessonsRefresh').addEventListener('click', async () => {
+    const b = $('lessonsRefresh');
+    b.disabled = true;
+    b.textContent = 'Güncelleniyor…';
+    try {
+      await api('/api/insights/refresh', {});
+      await refresh();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      b.disabled = false;
+      b.textContent = 'Şimdi güncelle';
+    }
+  });
 
   // ---------- sources ----------
   $('sourceForm').addEventListener('submit', async (e) => {
@@ -777,7 +853,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     el._dirty = true;
     updateCounters(el);
   });
-  const formBody = (f) => ({ hook: f.hook.value, narration: f.narration.value, title: f.title.value, description: f.description.value, tags: f.tags.value, instructions: f.instructions.value });
+  const formBody = (f) => ({ hook: f.hook.value, coverText: f.coverText.value, narration: f.narration.value, title: f.title.value, description: f.description.value, tags: f.tags.value, instructions: f.instructions.value });
   async function draftAction(el, act) {
     const id = el.dataset.id;
     const f = el.querySelector('form');
@@ -853,6 +929,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
     $('sHookSec').value = s.hookSeconds;
     $('sCapPos').value = s.captionPosition;
     $('sHighlight').value = s.highlightColor;
+    $('sCover').checked = s.coverEnabled;
     $('musicDir').textContent = s.musicDir;
     $('sGoogleId').value = s.googleClientId;
     $('sGoogleSecret').value = ''; $('sGoogleSecret').placeholder = s.googleSecretHint ? `Kayıtlı: ${s.googleSecretHint}` : 'Masaüstü istemcide zorunlu değil';
@@ -957,7 +1034,7 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
       voiceId: $('sVoice').value, voiceName: voice ? voice.name : '',
       voiceSpeed: Number($('sSpeed').value), voiceStability: Number($('sStability').value),
       originalVolume: Number($('sOrigVol').value), musicVolume: Number($('sMusicVol').value), hookSeconds: Number($('sHookSec').value),
-      captionPosition: $('sCapPos').value, highlightColor: $('sHighlight').value,
+      captionPosition: $('sCapPos').value, highlightColor: $('sHighlight').value, coverEnabled: $('sCover').checked,
       googleClientId: $('sGoogleId').value, googleClientSecret: $('sGoogleSecret').value, categoryId: $('sCategory').value,
       madeForKids: $('sKids').checked, syntheticMedia: $('sSynthetic').checked, descriptionFooter: $('sFooter').value,
       intervalDays: Number($('sInterval').value), publishTime: $('sTime').value, autoPrepare: $('sAutoPrepare').checked,

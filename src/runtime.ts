@@ -5,10 +5,11 @@ import { runFfmpeg } from './ffmpeg';
 import { log } from './log';
 import { OPUS_STAGE_NAMES, OpusBusyError, OpusClient, type OpusClipItem } from './opus';
 import { pathsFor, safeName, type Paths } from './paths';
-import { clipFile, prepareDraft, reviewDraft, slotAfterBooked, uploadDraft, type Ctx, type Endpoints } from './pipeline';
+import { LessonWriter, type Insights } from './insights';
+import { clipFile, prepareDraft, renderCoverFor, results, reviewDraft, setThumbnailFor, slotAfterBooked, uploadDraft, type Ctx, type Endpoints } from './pipeline';
 import { applySettingsInput, loadSettings, settingsView, writeSettings, type Settings } from './settings';
 import { newId, Store, type Clip, type Draft, type DraftStatus, type PrepareMode, type Source } from './store';
-import { fitTags, GOOGLE, YouTube, type GoogleEndpoints } from './youtube';
+import { fitTags, GOOGLE, ThumbnailForbiddenError, YouTube, type GoogleEndpoints } from './youtube';
 import { ScriptWriter, targetWords } from './claude';
 
 export interface RuntimeOptions {
@@ -33,7 +34,23 @@ const IN_PIPELINE: DraftStatus[] = ['queued', 'preparing', 'reviewing', 'failed'
 const BOOKED: DraftStatus[] = ['approved', 'uploading', 'scheduled'];
 const EDITABLE: DraftStatus[] = ['ready', 'failed'];
 
+/** How often YouTube's public counts are fetched for published shorts. */
+const STATS_EVERY_MS = 6 * 3_600_000;
+/** Lessons are first written once this many shorts have results. */
+const LESSONS_MIN_RESULTS = 3;
+const REJECTION: Record<string, string> = {
+  copyright: 'telif hakkı',
+  claim: 'hak talebi',
+  duplicate: 'aynı video daha önce yüklenmiş',
+  inappropriate: 'uygunsuz içerik',
+  termsOfUse: 'kullanım şartları',
+  trademark: 'marka hakkı',
+  legal: 'yasal sebep',
+  length: 'video uzunluğu',
+};
+
 const iso = () => new Date().toISOString();
+const later = (ms: number) => new Date(Date.now() + ms).toISOString();
 const due = (at?: string) => !at || Date.parse(at) <= Date.now();
 const msg = (e: unknown) => (e as Error).message;
 const when = (t?: string) => (t ? new Date(t).toLocaleString('tr-TR', { day: '2-digit', month: 'long', weekday: 'long', hour: '2-digit', minute: '2-digit' }) : '');
@@ -264,6 +281,96 @@ export class Runtime {
     }
     this.autoPrepare();
     for (const d of this.store.data.drafts) if (d.status === 'approved' && due(d.nextAttemptAt)) this.enqueueUpload(d);
+    if (!this.youtube.status().connected) return;
+    if (this.settings.coverEnabled) {
+      for (const d of this.store.data.drafts) {
+        if (d.status === 'scheduled' && d.youtubeId && d.hasCover && !d.thumbnailSet && !d.thumbnailError && due(d.nextThumbAt)) this.enqueueThumbnail(d);
+      }
+    }
+    const checked = this.store.data.statsCheckedAt;
+    if (!checked || Date.now() - Date.parse(checked) >= STATS_EVERY_MS) {
+      try {
+        await this.refreshStats();
+        await this.refreshInsights();
+      } catch (e) {
+        log.warn(`YouTube sonuçları ya da kanal dersleri güncellenemedi: ${msg(e)}`);
+      }
+    }
+  }
+
+  /** The cover can only be set once YouTube has finished processing the video, so this waits and retries. */
+  private enqueueThumbnail(d: Draft) {
+    this.enqueue(`thumb:${d.id}`, `Kapak yükleniyor: ${d.title}`, async () => {
+      const attempts = (d.thumbnailAttempts ?? 0) + 1;
+      try {
+        if (await setThumbnailFor(this.ctx, d)) {
+          this.store.updateDraft(d, { thumbnailSet: true, nextThumbAt: undefined });
+          log.ok(`Kapak YouTube’a yüklendi: ${d.title}`);
+        } else if (attempts >= 80) {
+          this.store.updateDraft(d, { thumbnailError: 'YouTube videoyu saatlerdir işliyor; kapak yüklenemedi', thumbnailAttempts: attempts });
+        } else {
+          this.store.updateDraft(d, { thumbnailAttempts: attempts, nextThumbAt: later(3 * 60_000) });
+        }
+      } catch (e) {
+        if (e instanceof ThumbnailForbiddenError || attempts >= 8) {
+          this.store.updateDraft(d, { thumbnailError: msg(e), thumbnailAttempts: attempts });
+          log.warn(`Kapak yüklenemedi (${d.title}): ${msg(e)}`);
+          this.notify('Kapak yüklenemedi', msg(e));
+          return;
+        }
+        this.store.updateDraft(d, { thumbnailAttempts: attempts, nextThumbAt: later(Math.min(120, 5 * 2 ** (attempts - 1)) * 60_000) });
+        log.warn(`Kapak yüklenemedi, tekrar denenecek (${d.title}): ${msg(e)}`);
+      }
+    });
+  }
+
+  /** Fetches YouTube's public counts for shorts published in the last 60 days and flags videos YouTube turned down. */
+  async refreshStats(): Promise<void> {
+    const now = Date.now();
+    const live = this.store.data.drafts.filter(
+      (d) => d.status === 'scheduled' && d.youtubeId && d.slot && Date.parse(d.slot) <= now && now - Date.parse(d.slot) < 60 * 86_400_000,
+    );
+    const stats = live.length ? await this.youtube.videoStats(live.map((d) => d.youtubeId as string)) : new Map();
+    for (const d of live) {
+      const st = stats.get(d.youtubeId as string);
+      const hours = (now - Date.parse(d.slot as string)) / 3_600_000;
+      let problem = '';
+      if (!st) problem = 'Video YouTube’da bulunamadı (silinmiş olabilir)';
+      else {
+        d.stats = { views: st.views, likes: st.likes, comments: st.comments, checkedAt: iso() };
+        if (!d.early && hours >= 48) d.early = { views: st.views, likes: st.likes, comments: st.comments, hoursLive: Math.round(hours) };
+        if (['rejected', 'failed', 'deleted'].includes(st.uploadStatus)) problem = `YouTube videoyu reddetti: ${REJECTION[st.problem] ?? (st.problem || st.uploadStatus)}`;
+        else if (st.privacy === 'private' && hours > 2) problem = 'Video yayın saatinde herkese açılmadı, hâlâ gizli';
+      }
+      if (problem && problem !== d.ytProblem) {
+        log.error(`${d.title}: ${problem}`);
+        this.notify('YouTube’da bir videoda sorun var', `${d.title}: ${problem}`);
+      }
+      d.ytProblem = problem || undefined;
+    }
+    this.store.data.statsCheckedAt = iso();
+    this.store.save();
+  }
+
+  /**
+   * Has Claude turn the channel's results into lessons for the script writer and the review panel.
+   * On its own it waits for a few results and then refreshes as new ones arrive or weekly; `force` is the panel's button.
+   */
+  async refreshInsights(force = false): Promise<Insights | undefined> {
+    const s = this.settings;
+    const rows = results(this.ctx);
+    if (force && !s.anthropicApiKey) throw new Error('Claude API anahtarı yok (Ayarlar → Claude)');
+    if (force && !rows.length) throw new Error('Henüz yayınlanıp sonucu gelen video yok');
+    if (!s.anthropicApiKey || !rows.length) return undefined;
+    const prev = this.store.data.insights;
+    const stale = !prev || rows.length - prev.basedOn >= 2 || Date.now() - Date.parse(prev.at) > 7 * 86_400_000;
+    if (!force && (rows.length < LESSONS_MIN_RESULTS || !stale)) return prev;
+    // The 60 newest are plenty and keep the request small as the channel grows.
+    const lessons = await new LessonWriter(s.anthropicApiKey, s.claudeModel, this.ctx.endpoints.claude).write(rows.slice(0, 60), s.language, s.channelStyle);
+    this.store.data.insights = { lessons, basedOn: rows.length, at: iso() };
+    this.store.save();
+    log.ok(`Kanal dersleri güncellendi (${rows.length} videonun sonucundan)`);
+    return this.store.data.insights;
   }
 
   private opus() {
@@ -512,10 +619,26 @@ export class Runtime {
       patch.tags = fitTags(raw);
     }
     if ('instructions' in body) patch.instructions = str(body.instructions, 1000);
+    if ('coverText' in body) patch.coverText = str(body.coverText, 30).replace(/\s+/g, ' ');
     if (patch.narration !== undefined && !patch.narration) throw new Error('Seslendirme metni boş olamaz');
-    const visualChange = (patch.hook !== undefined && patch.hook !== d.hook) || (patch.narration !== undefined && patch.narration !== d.narration);
+    const videoChange = (patch.hook !== undefined && patch.hook !== d.hook) || (patch.narration !== undefined && patch.narration !== d.narration);
+    const coverChange = patch.coverText !== undefined && patch.coverText !== (d.coverText ?? '');
     this.store.updateDraft(d, patch);
-    if (visualChange || d.status === 'failed') this.requeue(d, 'refresh');
+    if (videoChange || d.status === 'failed') this.requeue(d, 'refresh');
+    else if (coverChange && d.hasCover) this.enqueueCover(d);
+  }
+
+  /** Only the cover text changed: redraws the cover and keeps the video and the panel's verdict. */
+  private enqueueCover(d: Draft) {
+    this.enqueue(`cover:${d.id}`, `Kapak yeniden hazırlanıyor: ${d.title}`, async () => {
+      try {
+        await renderCoverFor(this.ctx, d);
+        this.store.updateDraft(d, {}); // new updatedAt, so the panel loads the new image
+        log.ok(`Kapak yeniden hazırlandı: ${d.title}`);
+      } catch (e) {
+        log.error(`Kapak hazırlanamadı (${d.title}): ${msg(e)}`);
+      }
+    });
   }
 
   rewriteDraft(id: string, instructions?: string): void {
@@ -628,10 +751,14 @@ export class Runtime {
           return {
             ...d,
             videoSrc: d.hasVideo ? `/media/drafts/${d.id}/final.mp4?v=${encodeURIComponent(d.updatedAt)}` : null,
+            coverSrc: d.hasCover ? `/media/drafts/${d.id}/cover.jpg?v=${encodeURIComponent(d.updatedAt)}` : null,
             clip: c ? { title: c.title, rank: c.rank, seconds: c.durationMs / 1000, sourceUrl: sources.get(c.sourceId)?.url ?? '' } : null,
             targetWords: targetWords((d.clipSeconds ?? (c ? c.durationMs / 1000 : 30)) || 30),
           };
         }),
+      results: results(this.ctx),
+      insights: this.store.data.insights ?? null,
+      statsCheckedAt: this.store.data.statsCheckedAt ?? null,
       logs: log.recent().slice(-200).reverse(),
     };
   }

@@ -65,6 +65,28 @@ const bgr = (hex: string) => `${hex.slice(5, 7)}${hex.slice(3, 5)}${hex.slice(1,
 
 export const FONT_NAME = 'Montserrat ExtraBold';
 
+/** Thumbnail text: big, centred, in the highlight colour with a heavy outline so it reads on any frame. */
+export function buildCoverAss(text: string, highlight: string, locale: string): string {
+  const t = text.replace(/[{}\\]/g, '').replace(/\s+/g, ' ').trim().toLocaleUpperCase(locale);
+  return [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    'PlayResX: 1080',
+    'PlayResY: 1920',
+    'WrapStyle: 0',
+    'ScaledBorderAndShadow: yes',
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    `Style: Cover,${FONT_NAME},132,&H00${bgr(highlight)},&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,12,6,5,70,70,0,1`,
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    `Dialogue: 0,0:00:00.00,0:00:05.00,Cover,,0,0,0,,${t}`,
+    '',
+  ].join('\n');
+}
+
 export interface AssOptions {
   words: Word[];
   hook: string;

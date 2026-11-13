@@ -73,11 +73,15 @@ export interface ReviewInput {
   style: string;
   /** Stills from the finished video, with its headline and captions burned in. */
   frames: Buffer[];
-  draft: { hook: string; narration: string; title: string; description: string; tags: string[] };
+  draft: { hook: string; narration: string; title: string; description: string; tags: string[]; coverText?: string };
   clip: { rank: number; seconds: number; text: string };
   videoSeconds: number;
   sourceNote: string;
   minScore: number;
+  /** Lessons drawn from this channel's real results. */
+  lessons?: string[];
+  /** Recent published shorts: the panel's score next to the views they actually got. */
+  track?: { title: string; panelScore?: number; views: number; earlyViews?: number; hoursLive: number }[];
 }
 
 function systemPrompt(language: string): string {
@@ -86,6 +90,7 @@ function systemPrompt(language: string): string {
     'You see stills from the finished video (with its burned-in headline and captions), the narration, the YouTube title, description and tags, and what is said in the original clip.',
     `Write your comment and fix in ${language}.`,
     'Be specific and honest. Approve only what you would be glad to see on the channel today; reject if it needs changes first.',
+    'When the channel’s real results are included, judge with them: they show what this audience actually watches, and whether the panel’s past scores matched the views.',
   ].join('\n');
 }
 
@@ -102,9 +107,21 @@ function shared(r: ReviewInput): string {
     `YouTube title: ${r.draft.title}`,
     `Description: ${r.draft.description}`,
     `Tags: ${r.draft.tags.join(', ')}`,
+    r.draft.coverText ? `Thumbnail text (big capitals on a clean frame): ${r.draft.coverText}` : '',
     '',
     'What is said in the original clip (plays quietly under the narration):',
     r.clip.text ? `"""${r.clip.text}"""` : '(no speech)',
+    ...(r.lessons?.length ? ['', "Lessons from this channel's real results:", ...r.lessons.map((l) => `- ${l}`)] : []),
+    ...(r.track?.length
+      ? [
+          '',
+          'Recent shorts on this channel - panel score vs. what they got:',
+          ...r.track.map(
+            (t) =>
+              `- "${t.title}": panel ${t.panelScore ?? '-'}/10, ${t.views} views${t.earlyViews !== undefined ? ` (${t.earlyViews} at 48 h)` : ''}, live ${Math.round(t.hoursLive)} h`,
+          ),
+        ]
+      : []),
   ]
     .filter((l) => l !== '')
     .join('\n');

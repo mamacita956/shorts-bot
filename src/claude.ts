@@ -10,6 +10,8 @@ export const ScriptSchema = z.object({
   title: z.string().describe('YouTube title, at most 80 characters, no hashtags'),
   description: z.string().describe('One or two sentences plus 3-6 hashtags'),
   tags: z.array(z.string()).describe('5-12 short search tags without #'),
+  coverText: z.string().describe('Thumbnail text: 2-4 punchy words, at most 24 characters, no emoji'),
+  coverFrame: z.number().describe('Number (1-based) of the still that makes the most eye-catching thumbnail'),
 });
 export type Script = z.infer<typeof ScriptSchema>;
 
@@ -29,6 +31,10 @@ export interface ScriptRequest {
   previous?: { hook: string; narration: string };
   /** When rewriting after the review panel turned the short down: the changes it asked for. */
   feedback?: string;
+  /** What this channel's real results have taught so far. */
+  lessons?: string[];
+  /** Openings of this channel's best-performing shorts. */
+  examples?: { hook: string; opening: string; views: number }[];
   frames: Buffer[];
 }
 
@@ -57,6 +63,8 @@ function systemPrompt(language: string, seconds: number, words: number): string 
     '- title: YouTube title up to 80 characters, may contain one emoji, no hashtags.',
     '- description: one or two sentences followed by 3-6 relevant hashtags.',
     '- tags: 5-12 short search tags without #.',
+    '- coverText: the words on the thumbnail, 2-4 punchy words (at most 24 characters), no emoji; it may differ from the headline.',
+    '- coverFrame: the number of the still (1 = first) that would make the most eye-catching thumbnail: clear action, a face or an emotional moment.',
     '',
     'Only state facts that the frames, the speech or the notes support. Do not invent names, scores, dates, records or quotes. ' +
       'If you are not sure who someone is, describe them instead of naming them.',
@@ -79,10 +87,14 @@ function details(r: ScriptRequest, words: number): string {
     lines.push('', 'This earlier version was turned down; write a clearly better one:', `Headline: ${r.previous.hook}`, `Narration: ${r.previous.narration}`);
   }
   if (r.feedback) lines.push('', 'Changes the review panel asked for (follow them):', r.feedback);
+  if (r.lessons?.length) lines.push('', "What this channel's real results have shown so far (use it):", ...r.lessons.map((l) => `- ${l}`));
+  if (r.examples?.length) {
+    lines.push('', 'Openings of the channel’s most-watched shorts (for tone, do not copy):', ...r.examples.map((e) => `- ${e.views} views: [${e.hook}] ${e.opening}`));
+  }
   return lines.join('\n');
 }
 
-function tidy(s: Script): Script {
+function tidy(s: Script, frames: number): Script {
   const oneLine = (v: string) => v.replace(/\s+/g, ' ').trim();
   return {
     hook: oneLine(s.hook).slice(0, 60),
@@ -90,6 +102,8 @@ function tidy(s: Script): Script {
     title: cleanText(oneLine(s.title), 100),
     description: cleanText(s.description.trim(), 4000),
     tags: fitTags(s.tags),
+    coverText: oneLine(s.coverText).slice(0, 30) || oneLine(s.hook).slice(0, 30),
+    coverFrame: Math.min(Math.max(1, Math.round(s.coverFrame) || 1), Math.max(1, frames)),
   };
 }
 
@@ -131,7 +145,7 @@ export class ScriptWriter {
     if (msg.stop_reason === 'refusal') throw new Error('Claude bu klip için metin yazmadı (içerik politikası). Klibi atla ya da talimatı değiştir.');
     if (msg.stop_reason === 'max_tokens') throw new Error('Claude cevabı yarıda kesildi; tekrar dene');
     if (!msg.parsed_output) throw new Error('Claude geçerli bir cevap döndürmedi; tekrar dene');
-    return tidy(msg.parsed_output);
+    return tidy(msg.parsed_output, r.frames.length);
   }
 
   /** Confirms the key works and can use the chosen model, without generating anything. */

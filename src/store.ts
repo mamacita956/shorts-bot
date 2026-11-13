@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { Insights } from './insights';
 import type { Review } from './review';
 
 export type SourceStage = 'submitting' | 'processing' | 'complete' | 'failed';
@@ -76,6 +77,21 @@ export interface Draft {
   review?: Review;
   /** How many times the panel's feedback has been used to rewrite this short. */
   revisions?: number;
+  /** Words on the thumbnail, and where in the clip its frame is taken. */
+  coverText?: string;
+  coverAt?: number;
+  hasCover?: boolean;
+  thumbnailSet?: boolean;
+  /** Why the thumbnail cannot be set (e.g. the channel is not verified); no more attempts. */
+  thumbnailError?: string;
+  thumbnailAttempts?: number;
+  nextThumbAt?: string;
+  /** Latest public counts from YouTube. */
+  stats?: { views: number; likes: number; comments: number; checkedAt: string };
+  /** Counts at the first check after 48 hours live. */
+  early?: { views: number; likes: number; comments: number; hoursLive: number };
+  /** YouTube rejected or failed the video. */
+  ytProblem?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,6 +100,8 @@ interface Data {
   sources: Source[];
   clips: Clip[];
   drafts: Draft[];
+  insights?: Insights;
+  statsCheckedAt?: string;
 }
 
 export const newId = () => randomBytes(5).toString('hex');
@@ -94,7 +112,7 @@ export class Store {
   constructor(private readonly file: string) {
     try {
       const d = JSON.parse(readFileSync(file, 'utf8'));
-      this.data = { sources: d.sources ?? [], clips: d.clips ?? [], drafts: d.drafts ?? [] };
+      this.data = { sources: d.sources ?? [], clips: d.clips ?? [], drafts: d.drafts ?? [], insights: d.insights, statsCheckedAt: d.statsCheckedAt };
     } catch {
       this.data = { sources: [], clips: [], drafts: [] };
     }

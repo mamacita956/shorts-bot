@@ -66,12 +66,14 @@ export async function probe(file: string): Promise<MediaInfo> {
   };
 }
 
+/** Where the stills are taken: the middle of each of `count` equal parts. */
+export const frameTimes = (duration: number, count: number) => Array.from({ length: count }, (_, i) => (duration * (i + 0.5)) / count);
+
 /** A few still frames spread across the clip, so Claude can see what happens in it. */
 export async function extractFrames(input: string, outDir: string, count: number, duration: number): Promise<string[]> {
   await mkdir(outDir, { recursive: true });
   const files: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const at = (duration * (i + 0.5)) / count;
+  for (const [i, at] of frameTimes(duration, count).entries()) {
     const file = join(outDir, `frame${i + 1}.jpg`);
     await runFfmpeg(['-y', '-ss', at.toFixed(2), '-i', input, '-frames:v', '1', '-vf', 'scale=480:-2', '-q:v', '5', file], { timeoutMs: 60_000 });
     files.push(file);
@@ -86,6 +88,19 @@ export async function extractFrames(input: string, outDir: string, count: number
 export function outputSeconds(clipSeconds: number, voiceSeconds: number): number {
   const needed = voiceSeconds + 0.8;
   return needed > clipSeconds ? needed : Math.min(clipSeconds, voiceSeconds + 3);
+}
+
+/** A 1080x1920 JPEG thumbnail: a clean frame of the clip (no captions) with the cover text from `subs` burned in. */
+export async function renderCover(o: { cwd: string; clip: string; at: number; subs: string; fontsDir: string; out: string }): Promise<void> {
+  const fonts = relative(o.cwd, o.fontsDir).split(sep).join('/') || '.';
+  await runFfmpeg(
+    [
+      '-y', '-ss', Math.max(0, o.at).toFixed(2), '-i', o.clip, '-frames:v', '1',
+      '-vf', `scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,eq=contrast=1.08:saturation=1.25,ass=${o.subs}:fontsdir=${fonts}`,
+      '-q:v', '3', o.out,
+    ],
+    { cwd: o.cwd, timeoutMs: 60_000 },
+  );
 }
 
 export interface RenderOptions {

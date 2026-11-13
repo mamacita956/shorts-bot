@@ -122,6 +122,10 @@ export function startDashboard(rt: Runtime, opts: DashboardOptions): Promise<{ p
       }
       return { ok: true };
     }
+    if (path === '/api/insights/refresh') {
+      if (rt.youtube.status().connected) await rt.refreshStats();
+      return { insights: await rt.refreshInsights(true) };
+    }
     if (path === '/api/youtube/connect') return { url: rt.youtube.authUrl(`http://127.0.0.1:${port}`) };
     if (path === '/api/youtube/disconnect') {
       rt.youtube.disconnect();

@@ -86,6 +86,7 @@ test('the review panel debates, sends a weak version back for a rewrite, then pu
   const first = fakes.rec.reviews[0] as { messages: { content: { type: string }[] }[] };
   assert.equal(first.messages[0].content.filter((c) => c.type === 'image').length, 4);
   assert.match(round1[0], /Narration: Bu golü gördünüz mü/);
+  assert.match(round1[0], /Thumbnail text \(big capitals on a clean frame\): istanbul sallandı/);
 
   // The rejection fed a rewrite with the panel's fix.
   assert.equal(fakes.rec.claude.length, 2);

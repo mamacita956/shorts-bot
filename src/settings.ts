@@ -93,6 +93,8 @@ export interface Settings {
   opusTopN: number;
   /** In agents mode, how many publish slots are kept filled ahead. */
   planAhead: number;
+  /** Make a thumbnail for every short and set it on YouTube. */
+  coverEnabled: boolean;
 }
 
 export const REVIEW_MODES = ['agents', 'advisory', 'off'] as const;
@@ -142,6 +144,7 @@ export const DEFAULTS: Settings = {
   reviewRevisions: 1,
   opusTopN: 5,
   planAhead: 3,
+  coverEnabled: true,
 };
 
 export function loadSettings(path: string): Settings {
@@ -258,6 +261,7 @@ export function applySettingsInput(current: Settings, body: Record<string, unkno
   if (has('reviewRevisions')) s.reviewRevisions = num(body.reviewRevisions, 0, 3, 'Yeniden yazma hakkı', true);
   if (has('opusTopN')) s.opusTopN = num(body.opusTopN, 1, 50, 'Kullanılacak klip sayısı', true);
   if (has('planAhead')) s.planAhead = num(body.planAhead, 1, 15, 'İleriye planlanacak yayın sayısı', true);
+  if (has('coverEnabled')) s.coverEnabled = body.coverEnabled === true;
   return s;
 }
 

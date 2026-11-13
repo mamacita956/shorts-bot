@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { outputSeconds } from '../src/ffmpeg';
+import { frameTimes, outputSeconds } from '../src/ffmpeg';
+import { firstSentence } from '../src/insights';
 import { decide, type Opinion } from '../src/review';
 import { nextSlot } from '../src/schedule';
 import { applySettingsInput, DEFAULTS } from '../src/settings';
-import { assTime, buildAss, chunkWords, wordsFromAlignment } from '../src/subtitles';
+import { assTime, buildAss, buildCoverAss, chunkWords, wordsFromAlignment } from '../src/subtitles';
 import { cleanText, fitTags } from '../src/youtube';
 import { fakeAlignment } from './helpers';
 
@@ -98,4 +99,17 @@ test('YouTube limits: tags fit the 500-character budget, < and > are removed', (
   assert.ok(cost <= 500);
   assert.equal(cleanText('a <b> c', 100), 'a b c');
   assert.equal(Buffer.byteLength(cleanText('ğğğğ', 5)), 4);
+});
+
+test('cover: Turkish upper case in the highlight colour, stills taken mid-way through equal parts', () => {
+  const ass = buildCoverAss('  istanbul {\\b1}sallandı ', '#FFD400', 'tr-TR');
+  assert.match(ass, /^Style: Cover,Montserrat ExtraBold,132,&H0000D4FF,/m);
+  assert.match(ass, /^Dialogue: 0,0:00:00\.00,0:00:05\.00,Cover,,0,0,0,,İSTANBUL B1SALLANDI$/m);
+  assert.deepEqual(frameTimes(8, 4), [1, 3, 5, 7]);
+});
+
+test('the opening sentence of a narration is what the lessons compare', () => {
+  assert.equal(firstSentence('Bu golü gördünüz mü? Top ağlarda!'), 'Bu golü gördünüz mü?');
+  assert.equal(firstSentence('Noktasız tek cümle'), 'Noktasız tek cümle');
+  assert.equal(firstSentence('3.5 milyon euro... Ama değer mi?'), '3.5 milyon euro...');
 });
